@@ -36,6 +36,7 @@ pub mod compare;
 pub mod context;
 pub mod cost;
 pub mod fallback;
+pub mod overlay;
 pub mod router;
 pub mod store;
 pub mod types;
@@ -44,6 +45,11 @@ pub use compare::compare;
 pub use context::{check_context_fit, find_best_context_model};
 pub use cost::{calculate_cost_for_model, estimate_request_cost};
 pub use fallback::fallback_chain;
+pub use overlay::{
+    apply_overlay, load_models_dev_from_file, parse_models_dev, ModelsDevCost, ModelsDevIndex,
+    ModelsDevLimit, ModelsDevModalities, ModelsDevModel, ModelsDevProvider, OverlayMode,
+    OverlayReport,
+};
 pub use router::route;
 pub use store::RouterStore;
 pub use types::*;

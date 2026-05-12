@@ -689,6 +689,266 @@ fn compare_unknown_models_skipped() {
     assert!(comp.fields.is_empty());
 }
 
+// ─────────────────────────── Overlay tests ──────────────────────────
+
+const OVERLAY_JSON: &str = r#"{
+  "test-provider": {
+    "id": "test-provider",
+    "models": {
+      "model-small": {
+        "id": "model-small",
+        "attachment": true,
+        "tool_call": true,
+        "reasoning": false,
+        "knowledge": "2024-01",
+        "cost": { "input": 0.4, "output": 1.4, "cache_read": 0.05 },
+        "limit": { "context": 8192, "output": 4096 },
+        "modalities": { "input": ["text", "pdf"], "output": ["text"] }
+      },
+      "model-large": {
+        "id": "model-large",
+        "tool_call": true,
+        "cost": { "input": 99.0 },
+        "modalities": { "input": ["text", "image", "audio"], "output": ["text", "image"] }
+      }
+    }
+  },
+  "alibaba": {
+    "id": "alibaba",
+    "models": {
+      "test-aliased": {
+        "id": "test-aliased",
+        "tool_call": true,
+        "limit": { "context": 200000 }
+      },
+      "missing-only": {
+        "id": "missing-only",
+        "tool_call": false,
+        "cost": { "input": 1.0, "output": 2.0 },
+        "limit": { "context": 16000 }
+      }
+    }
+  }
+}"#;
+
+fn overlay_store_with_extra_provider() -> RouterStore {
+    let mut sample: serde_json::Value = serde_json::from_str(SAMPLE_JSON).unwrap();
+    sample
+        .as_object_mut()
+        .unwrap()
+        .insert(
+            "alibaba-cn".to_string(),
+            serde_json::json!({
+                "id": "alibaba-cn",
+                "name": "Alibaba CN",
+                "apiBaseUrl": "https://example.com/v1",
+                "models": {
+                    "test-aliased": {
+                        "id": "test-aliased",
+                        "name": "Test Aliased"
+                    },
+                    "missing-only": {
+                        "id": "missing-only",
+                        "name": "Missing Only"
+                    }
+                }
+            }),
+        );
+    RouterStore::from_json(&serde_json::to_string(&sample).unwrap()).unwrap()
+}
+
+#[test]
+fn overlay_fill_only_fills_missing_fields() {
+    let mut store = overlay_store_with_extra_provider();
+    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
+    let report = store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    assert!(report.fields_written > 0);
+    let m = store.find_model("model-small").unwrap();
+    assert_eq!(
+        m.features.as_ref().and_then(|f| f.attachment),
+        Some(false),
+        "existing feature should not be overwritten under FillOnly"
+    );
+    assert_eq!(
+        m.features.as_ref().and_then(|f| f.reasoning),
+        Some(false),
+        "missing reasoning flag should now be filled"
+    );
+}
+
+#[test]
+fn overlay_prefer_overlay_overwrites_existing_fields() {
+    let mut store = overlay_store_with_extra_provider();
+    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
+    store.apply_overlay(&overlay, OverlayMode::PreferOverlay);
+    let m = store.find_model("model-small").unwrap();
+    assert_eq!(
+        m.features.as_ref().and_then(|f| f.attachment),
+        Some(true),
+        "PreferOverlay should overwrite false with true"
+    );
+    assert_eq!(
+        m.pricing.as_ref().and_then(|p| p.input),
+        Some(0.4),
+        "PreferOverlay should overwrite price from 0.5 to 0.4"
+    );
+}
+
+#[test]
+fn overlay_fills_pricing_for_model_missing_fields() {
+    let mut store = overlay_store_with_extra_provider();
+    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
+    store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    let m = store.find_model("missing-only").unwrap();
+    assert_eq!(m.pricing.as_ref().and_then(|p| p.input), Some(1.0));
+    assert_eq!(m.pricing.as_ref().and_then(|p| p.output), Some(2.0));
+    assert_eq!(m.limit.as_ref().and_then(|l| l.context), Some(16000));
+    assert_eq!(m.features.as_ref().and_then(|f| f.tool_call), Some(false));
+}
+
+#[test]
+fn overlay_pdf_modality_maps_to_file() {
+    let mut store = overlay_store_with_extra_provider();
+    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
+    store.apply_overlay(&overlay, OverlayMode::PreferOverlay);
+    let m = store.find_model("model-small").unwrap();
+    let inputs = m.modalities.as_ref().and_then(|x| x.input.as_ref()).unwrap();
+    assert!(inputs.contains(&ModelModality::Text));
+    assert!(inputs.contains(&ModelModality::File));
+    assert!(!inputs.iter().any(|x| format!("{:?}", x).to_lowercase().contains("pdf")));
+}
+
+#[test]
+fn overlay_canonical_fallback_matches_aggregator_provider() {
+    // Build a store where an aggregator-style provider ("aggregator-co")
+    // hosts gpt-* and claude-* models without a slash prefix. The overlay
+    // only knows the canonical providers. The canonical fallback should
+    // bridge them.
+    let sample = serde_json::json!({
+        "aggregator-co": {
+            "id": "aggregator-co",
+            "name": "Aggregator Co",
+            "apiBaseUrl": "https://agg.example.com/v1",
+            "models": {
+                "gpt-canary-mini": { "id": "gpt-canary-mini", "name": "GPT Canary Mini" },
+                "claude-canary": { "id": "claude-canary", "name": "Claude Canary" }
+            }
+        }
+    });
+    let mut store = RouterStore::from_json(&serde_json::to_string(&sample).unwrap()).unwrap();
+    let overlay_json = r#"{
+        "openai": {
+            "id": "openai",
+            "models": {
+                "gpt-canary-mini": {
+                    "id": "gpt-canary-mini",
+                    "tool_call": true,
+                    "cost": { "input": 0.1 },
+                    "limit": { "context": 64000 }
+                }
+            }
+        },
+        "anthropic": {
+            "id": "anthropic",
+            "models": {
+                "claude-canary": {
+                    "id": "claude-canary",
+                    "tool_call": true,
+                    "cost": { "input": 5.0 },
+                    "limit": { "context": 200000 }
+                }
+            }
+        }
+    }"#;
+    let overlay = parse_models_dev(overlay_json).unwrap();
+    let report = store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    assert_eq!(report.models_touched, 2);
+    let gpt = store.find_model("gpt-canary-mini").unwrap();
+    assert_eq!(gpt.features.as_ref().and_then(|f| f.tool_call), Some(true));
+    assert_eq!(gpt.limit.as_ref().and_then(|l| l.context), Some(64000));
+    let claude = store.find_model("claude-canary").unwrap();
+    assert_eq!(claude.features.as_ref().and_then(|f| f.tool_call), Some(true));
+    assert_eq!(claude.limit.as_ref().and_then(|l| l.context), Some(200000));
+}
+
+#[test]
+fn overlay_canonical_fallback_with_vendor_prefix() {
+    let sample = serde_json::json!({
+        "aggregator-co": {
+            "id": "aggregator-co",
+            "name": "Aggregator Co",
+            "models": {
+                "openai/gpt-canary": { "id": "openai/gpt-canary" }
+            }
+        }
+    });
+    let mut store = RouterStore::from_json(&serde_json::to_string(&sample).unwrap()).unwrap();
+    let overlay_json = r#"{
+        "openai": {
+            "id": "openai",
+            "models": {
+                "gpt-canary": {
+                    "id": "gpt-canary",
+                    "tool_call": true,
+                    "limit": { "context": 32000 }
+                }
+            }
+        }
+    }"#;
+    let overlay = parse_models_dev(overlay_json).unwrap();
+    store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    let m = store.find_model("openai/gpt-canary").unwrap();
+    assert_eq!(m.features.as_ref().and_then(|f| f.tool_call), Some(true));
+    assert_eq!(m.limit.as_ref().and_then(|l| l.context), Some(32000));
+}
+
+#[test]
+fn overlay_provider_alias_alibaba_cn_to_alibaba() {
+    let mut store = overlay_store_with_extra_provider();
+    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
+    store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    let alibaba_cn_models = store.find_models_by_provider("alibaba-cn");
+    let target = alibaba_cn_models
+        .iter()
+        .find(|m| m.id == "test-aliased")
+        .expect("test-aliased should exist in alibaba-cn");
+    assert_eq!(target.limit.as_ref().and_then(|l| l.context), Some(200000));
+    assert_eq!(target.features.as_ref().and_then(|f| f.tool_call), Some(true));
+}
+
+#[test]
+fn overlay_unmatched_models_reported() {
+    let mut store = overlay_store_with_extra_provider();
+    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
+    let report = store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    assert!(report.models_unmatched > 0);
+    assert!(report.models_touched > 0);
+}
+
+#[test]
+fn overlay_idempotent_under_fill_only() {
+    let mut store = overlay_store_with_extra_provider();
+    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
+    let first = store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    let second = store.apply_overlay(&overlay, OverlayMode::FillOnly);
+    assert!(first.fields_written > 0);
+    assert_eq!(
+        second.fields_written, 0,
+        "running overlay twice should not write the same fields again"
+    );
+}
+
+#[test]
+fn overlay_from_json_returns_report() {
+    let mut store = overlay_store_with_extra_provider();
+    let report = store
+        .apply_overlay_from_json(OVERLAY_JSON, OverlayMode::FillOnly)
+        .unwrap();
+    assert!(report.fields_written > 0);
+}
+
+// ─────────────────────────── Compare tests ──────────────────────────
+
 #[test]
 fn compare_three_models() {
     let store = test_store();

@@ -1,3 +1,7 @@
+use crate::overlay::{
+    apply_overlay, load_models_dev_from_file, parse_models_dev, ModelsDevIndex, OverlayMode,
+    OverlayReport,
+};
 use crate::types::*;
 use std::fs;
 use std::path::PathBuf;
@@ -106,5 +110,38 @@ impl RouterStore {
             .iter()
             .filter(|m| m.provider.to_lowercase() == lower)
             .collect()
+    }
+
+    /// Enrich models in place from a parsed models.dev catalog.
+    ///
+    /// Returns an [`OverlayReport`] describing how many models were touched
+    /// and how many fields were written. See [`crate::overlay`] for the
+    /// schema mapping and merge semantics.
+    pub fn apply_overlay(
+        &mut self,
+        overlay: &ModelsDevIndex,
+        mode: OverlayMode,
+    ) -> OverlayReport {
+        apply_overlay(&mut self.flat_models, overlay, mode)
+    }
+
+    /// Enrich models in place from a models.dev catalog JSON string.
+    pub fn apply_overlay_from_json(
+        &mut self,
+        json: &str,
+        mode: OverlayMode,
+    ) -> Result<OverlayReport, RouterError> {
+        let overlay = parse_models_dev(json)?;
+        Ok(apply_overlay(&mut self.flat_models, &overlay, mode))
+    }
+
+    /// Enrich models in place from a models.dev catalog file on disk.
+    pub fn apply_overlay_from_file(
+        &mut self,
+        path: &std::path::Path,
+        mode: OverlayMode,
+    ) -> Result<OverlayReport, RouterError> {
+        let overlay = load_models_dev_from_file(path)?;
+        Ok(apply_overlay(&mut self.flat_models, &overlay, mode))
     }
 }

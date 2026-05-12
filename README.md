@@ -23,6 +23,9 @@ arithmetic via [`rust_decimal`](https://crates.io/crates/rust_decimal).
 - **Context window checks** with automatic suggestions for better-fitting models.
 - **Side-by-side comparisons** across any number of models, with winners
   computed for every numeric field.
+- **models.dev overlay** enrichment that fills missing fields and corrects
+  known data errors using the [models.dev](https://models.dev) catalog as a
+  secondary source of truth.
 
 ## Installation
 
@@ -42,12 +45,21 @@ This crate reads model data at runtime from the AI Model Directory's
   in your working directory, or
 - An explicit path passed to [`RouterStore::from_file`].
 
+### Overlay data file
+
+For the models.dev overlay, drop a copy of
+[models.dev/api.json](https://models.dev/api.json) into your working directory
+as `data/models-dev-api.json`. A bundled copy lives at
+[`router-rs/data/models-dev-api.json`](data/models-dev-api.json) for use during
+development and tests.
+
 ## Usage
 
 ```rust
 use ai_model_directory_router::{
     RouterStore, route, calculate_cost_for_model, fallback_chain,
     check_context_fit, compare, CostRequest, RouteQuery, SortField, SortOrder,
+    OverlayMode,
 };
 use std::path::Path;
 
@@ -96,6 +108,45 @@ for field in &comp.fields {
         println!("{}: winner = {}", field.field, winner);
     }
 }
+
+// Overlay: enrich the store with models.dev data
+let mut store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
+let report = store
+    .apply_overlay_from_file(Path::new("data/models-dev-api.json"), OverlayMode::FillOnly)
+    .unwrap();
+println!(
+    "Overlay touched {} models, wrote {} fields, {} unmatched",
+    report.models_touched, report.fields_written, report.models_unmatched
+);
+```
+
+## Overlay impact (real numbers)
+
+Running the bundled `overlay_impact` example against the upstream
+`data/all.min.json` (7,226 models) and `data/models-dev-api.json` (4,490
+models across 120 providers):
+
+| Required field | Missing before | After `FillOnly` | Δ |
+|----------------|---------------:|-----------------:|--:|
+| `name` | 5 | 3 | -2 |
+| `limit.context` | 1,730 | 1,425 | -305 |
+| `pricing.input` | 1,283 | 1,072 | -211 |
+| `pricing.output` | 1,372 | 1,139 | -233 |
+| `features.attachment` | 1,113 | 868 | -245 |
+| `features.tool_call` | 1,368 | 902 | -466 |
+| `modalities.input` | 956 | 705 | -251 |
+| `modalities.output` | 1,700 | 1,179 | -521 |
+| **models with any missing** | **3,434** | **2,431** | **-1,003** |
+
+`PreferOverlay` mode goes further and corrects known wrong values
+(`gpt-4o.tool_call`, `deepseek-r1.context`, etc.) using models.dev as the
+authoritative source: 21,544 field writes total.
+
+Run it yourself:
+
+```bash
+cargo run --release --example overlay_impact -- \
+    path/to/all.min.json path/to/models-dev-api.json
 ```
 
 ## API Overview
@@ -112,6 +163,9 @@ for field in &comp.fields {
 | [`check_context_fit`] | Check if a prompt fits a context window |
 | [`find_best_context_model`] | Cheapest model that fits a token count |
 | [`compare`] | Side-by-side comparison with winners |
+| [`RouterStore::apply_overlay_from_file`] | Enrich the store with models.dev data |
+| [`RouterStore::apply_overlay_from_json`] | Same, with a JSON string |
+| [`OverlayMode`] | `FillOnly` (default) or `PreferOverlay` (authoritative) |
 
 ## Contributing
 
