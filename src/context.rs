@@ -1,6 +1,33 @@
 use crate::store::RouterStore;
 use crate::types::*;
 
+/// Check whether a prompt fits within a model's context window.
+///
+/// Returns a [`ContextFit`] describing the fit, the available context,
+/// requested tokens, and up to 5 better alternatives sorted by context size.
+///
+/// # Errors
+///
+/// Returns [`RouterError::ModelNotFound`] if the model ID does not exist.
+///
+/// # Example
+///
+/// ```no_run
+/// use ai_model_directory_router::{RouterStore, check_context_fit};
+/// use std::path::Path;
+///
+/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
+/// let fit = check_context_fit(&store, "gpt-4o", 50_000, Some(10_000)).unwrap();
+/// if fit.fits {
+///     println!("Fits! {} tokens of overhead", fit.overhead);
+/// } else {
+///     println!("Does not fit. Alternatives:");
+///     for alt in &fit.better_alternatives {
+///         println!("  {} ({} context)", alt.id,
+///             alt.limit.as_ref().and_then(|l| l.context).unwrap_or(0));
+///     }
+/// }
+/// ```
 pub fn check_context_fit(
     store: &RouterStore,
     model_id: &str,
@@ -59,6 +86,13 @@ pub fn check_context_fit(
     })
 }
 
+/// Find the cheapest model that fits a given token count.
+///
+/// Optionally filter by provider. Returns the model with the lowest input
+/// price per million tokens that has a context window large enough for
+/// `tokens`.
+///
+/// Returns `None` if no model has a large enough context window.
 pub fn find_best_context_model(
     store: &RouterStore,
     tokens: u64,

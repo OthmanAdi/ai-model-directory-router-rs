@@ -60,6 +60,29 @@ fn modality_match(a: &FlatModel, b: &FlatModel) -> bool {
     b_in.iter().all(|m| a_in.contains(m)) && b_out.iter().all(|m| a_out.contains(m))
 }
 
+/// Generate a scored fallback chain for a model.
+///
+/// Given a model ID, returns a [`FallbackChain`] containing alternative
+/// models ranked by similarity to the original. Scoring considers feature
+/// overlap, modality compatibility, context window size, price ratio, and
+/// provider affinity.
+///
+/// # Errors
+///
+/// Returns [`RouterError::ModelNotFound`] if the given model ID does not
+/// exist in the store.
+///
+/// # Example
+///
+/// ```no_run
+/// use ai_model_directory_router::{RouterStore, fallback_chain, FallbackOptions};
+/// use std::path::Path;
+///
+/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
+/// let chain = fallback_chain(&store, "gpt-4o", &FallbackOptions::default()).unwrap();
+/// println!("Fallbacks for {}: {:?}", chain.original.id,
+///     chain.models.iter().map(|m| &m.id).collect::<Vec<_>>());
+/// ```
 pub fn fallback_chain(
     store: &RouterStore,
     model_id: &str,

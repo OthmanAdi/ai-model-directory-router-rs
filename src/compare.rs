@@ -71,6 +71,27 @@ fn bool_field(
     }
 }
 
+/// Compare two or more models side by side across all key dimensions.
+///
+/// Returns a [`ModelComparison`] with fields for context, pricing, features,
+/// modalities, and more. Numeric fields include a `winner` pointing to the
+/// best model ID.
+///
+/// Unknown model IDs are silently skipped. If fewer than two valid models
+/// are found, the `fields` vector will be empty.
+///
+/// # Example
+///
+/// ```no_run
+/// use ai_model_directory_router::{RouterStore, compare};
+/// use std::path::Path;
+///
+/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
+/// let comp = compare(&store, &["gpt-4o", "claude-sonnet-4-20250514"]);
+/// for field in &comp.fields {
+///     println!("{}: winner={:?}", field.field, field.winner);
+/// }
+/// ```
 pub fn compare(store: &RouterStore, model_ids: &[&str]) -> ModelComparison {
     let models: Vec<FlatModel> = model_ids
         .iter()

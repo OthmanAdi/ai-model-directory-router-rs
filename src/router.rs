@@ -43,6 +43,30 @@ fn matches_features(model: &FlatModel, features: &ModelFeatures) -> bool {
     true
 }
 
+/// Route models through configurable filters, sorting, and pagination.
+///
+/// Returns a [`RouteResult`] containing the matching models, total count,
+/// and whether more results are available beyond the current page.
+///
+/// # Example
+///
+/// ```no_run
+/// use ai_model_directory_router::{RouterStore, route, RouteQuery, SortField, SortOrder};
+/// use std::path::Path;
+///
+/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
+/// let query = RouteQuery {
+///     provider: Some("openai".to_string()),
+///     min_context: Some(128_000),
+///     sort: Some(SortField::InputPrice),
+///     order: Some(SortOrder::Asc),
+///     limit: Some(5),
+///     ..RouteQuery::default()
+/// };
+/// let result = route(&store, &query);
+/// println!("Found {} models ({} total, has_more: {})",
+///     result.models.len(), result.total, result.has_more);
+/// ```
 pub fn route(store: &RouterStore, query: &RouteQuery) -> RouteResult {
     let mut models: Vec<FlatModel> = store.flat_models().to_vec();
 

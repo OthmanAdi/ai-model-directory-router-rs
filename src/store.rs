@@ -5,11 +5,34 @@ use std::sync::OnceLock;
 
 static STORE: OnceLock<RouterStore> = OnceLock::new();
 
+/// The primary entry point for all operations. Holds flattened model data
+/// loaded from the AI Model Directory JSON file.
+///
+/// # Construction
+///
+/// - [`RouterStore::from_json`] parses a JSON string directly.
+/// - [`RouterStore::from_file`] reads and parses a JSON file from disk.
+/// - [`RouterStore::global`] returns a process-wide singleton, reading from
+///   `data/all.min.json` or `data/all.json`.
+///
+/// # Example
+///
+/// ```no_run
+/// use ai_model_directory_router::RouterStore;
+/// use std::path::Path;
+///
+/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
+/// println!("Loaded {} models", store.flat_models().len());
+/// ```
 pub struct RouterStore {
     flat_models: Vec<FlatModel>,
 }
 
 impl RouterStore {
+    /// Parse model data from a JSON string.
+    ///
+    /// The JSON must be a map of provider ID to [`ProviderEntry`], matching
+    /// the format of `all.min.json` from the AI Model Directory.
     pub fn from_json(json: &str) -> Result<Self, RouterError> {
         let directory: ModelDirectory = serde_json::from_str(json)?;
         let mut flat_models = Vec::new();
@@ -35,11 +58,17 @@ impl RouterStore {
         Ok(Self { flat_models })
     }
 
+    /// Load model data from a JSON file on disk.
     pub fn from_file(path: &std::path::Path) -> Result<Self, RouterError> {
         let json = fs::read_to_string(path)?;
         Self::from_json(&json)
     }
 
+    /// Returns a process-wide singleton [`RouterStore`].
+    ///
+    /// Searches for `data/all.min.json` then `data/all.json` relative to the
+    /// current working directory. **Panics** if neither file exists or if
+    /// parsing fails. This matches the TypeScript version's behavior.
     pub fn global() -> &'static RouterStore {
         STORE.get_or_init(|| {
             let candidates = [
@@ -60,14 +89,17 @@ impl RouterStore {
         })
     }
 
+    /// All models, flattened with their provider ID attached.
     pub fn flat_models(&self) -> &[FlatModel] {
         &self.flat_models
     }
 
+    /// Look up a model by its ID (e.g. `"gpt-4o"`).
     pub fn find_model(&self, model_id: &str) -> Option<&FlatModel> {
         self.flat_models.iter().find(|m| m.id == model_id)
     }
 
+    /// All models belonging to a given provider. Case insensitive.
     pub fn find_models_by_provider(&self, provider_id: &str) -> Vec<&FlatModel> {
         let lower = provider_id.to_lowercase();
         self.flat_models

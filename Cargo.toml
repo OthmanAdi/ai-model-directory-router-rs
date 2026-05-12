@@ -2,9 +2,14 @@
 name = "ai-model-directory-router"
 version = "0.1.0"
 edition = "2021"
-description = "Model routing, cost calculation, fallback chains, and context management for the AI Model Directory"
+rust-version = "1.70"
+description = "Model routing, cost calculation, fallback chains, and context window management for 7000+ AI models"
 license = "Apache-2.0"
-repository = "https://github.com/The-Best-Codes/ai-model-directory"
+repository = "https://github.com/OthmanAdi/ai-model-directory-router-rs"
+homepage = "https://github.com/OthmanAdi/ai-model-directory-router-rs"
+readme = "README.md"
+keywords = ["ai", "llm", "model-routing", "cost-calculation", "model-directory"]
+categories = ["algorithms", "data-structures", "science"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

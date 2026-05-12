@@ -12,6 +12,28 @@ fn price_for_tokens(rate: Option<f64>, tokens: u64) -> Decimal {
     }
 }
 
+/// Calculate a full cost breakdown for a model given token usage.
+///
+/// Prices in the model data are per million tokens. The returned
+/// [`CostBreakdown`] contains values already scaled to the requested
+/// token counts, using exact [`Decimal`] arithmetic (no float drift).
+///
+/// # Example
+///
+/// ```no_run
+/// use ai_model_directory_router::{RouterStore, calculate_cost_for_model, CostRequest};
+/// use std::path::Path;
+///
+/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
+/// let model = store.find_model("gpt-4o").unwrap();
+/// let req = CostRequest {
+///     input_tokens: 1_000_000,
+///     output_tokens: 500_000,
+///     ..Default::default()
+/// };
+/// let cost = calculate_cost_for_model(model, &req);
+/// println!("Total: ${}", cost.total);
+/// ```
 pub fn calculate_cost_for_model(
     model: &FlatModel,
     request: &CostRequest,
@@ -55,6 +77,9 @@ pub fn calculate_cost_for_model(
     }
 }
 
+/// Quick cost estimate given per-million-token prices and token counts.
+///
+/// Returns the combined input + output cost as a [`Decimal`].
 pub fn estimate_request_cost(
     input_price_per_million: Option<f64>,
     output_price_per_million: Option<f64>,

@@ -1,8 +1,10 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
+/// Input or output modality supported by a model.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ModelModality {
     Text,
     Image,
@@ -11,7 +13,8 @@ pub enum ModelModality {
     File,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+/// Feature flags describing what a model can do.
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ModelFeatures {
     pub attachment: Option<bool>,
     pub reasoning: Option<bool>,
@@ -20,6 +23,7 @@ pub struct ModelFeatures {
     pub temperature: Option<bool>,
 }
 
+/// Per-token prices (USD per million tokens) for a model.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelPricing {
     pub input: Option<f64>,
@@ -31,6 +35,7 @@ pub struct ModelPricing {
     pub output_audio: Option<f64>,
 }
 
+/// Token limits for a model.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelLimit {
     pub context: Option<u64>,
@@ -38,12 +43,14 @@ pub struct ModelLimit {
     pub output: Option<u64>,
 }
 
+/// Input and output modalities for a model.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelModalities {
     pub input: Option<Vec<ModelModality>>,
     pub output: Option<Vec<ModelModality>>,
 }
 
+/// A model record as it appears in the JSON data, before flattening.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModelRecord {
     pub id: String,
@@ -58,6 +65,10 @@ pub struct ModelRecord {
     pub modalities: Option<ModelModalities>,
 }
 
+/// A model flattened with its provider ID attached.
+///
+/// This is the primary data type used throughout the library. Each
+/// [`FlatModel`] corresponds to exactly one model from one provider.
 #[derive(Debug, Clone)]
 pub struct FlatModel {
     pub id: String,
@@ -73,6 +84,7 @@ pub struct FlatModel {
     pub provider: String,
 }
 
+/// A provider entry as it appears in the JSON data.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderEntry {
@@ -85,7 +97,24 @@ pub struct ProviderEntry {
 
 pub type ModelDirectory = HashMap<String, ProviderEntry>;
 
-#[derive(Debug, Clone)]
+/// Query parameters for routing models.
+///
+/// All fields are optional; unset fields are not used as filters.
+/// Use [`RouteQuery::default`] to start with no filters and set only what you need.
+///
+/// # Example
+///
+/// ```no_run
+/// use ai_model_directory_router::RouteQuery;
+///
+/// let query = RouteQuery {
+///     provider: Some("anthropic".to_string()),
+///     min_context: Some(100_000),
+///     limit: Some(10),
+///     ..RouteQuery::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Default)]
 pub struct RouteQuery {
     pub provider: Option<String>,
     pub input_modalities: Option<Vec<ModelModality>>,
@@ -101,20 +130,26 @@ pub struct RouteQuery {
     pub offset: Option<usize>,
 }
 
-#[derive(Debug, Clone)]
+/// Field to sort route results by.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub enum SortField {
+    #[default]
+    Id,
     Context,
     InputPrice,
     OutputPrice,
-    Id,
 }
 
-#[derive(Debug, Clone)]
+/// Sort direction for route results.
+#[derive(Debug, Clone, Default)]
 pub enum SortOrder {
+    #[default]
     Asc,
     Desc,
 }
 
+/// Paginated result from a route query.
 #[derive(Debug, Clone)]
 pub struct RouteResult {
     pub models: Vec<FlatModel>,
@@ -122,7 +157,8 @@ pub struct RouteResult {
     pub has_more: bool,
 }
 
-#[derive(Debug, Clone)]
+/// Token counts for a cost calculation request.
+#[derive(Debug, Clone, Default)]
 pub struct CostRequest {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -133,6 +169,10 @@ pub struct CostRequest {
     pub output_audio_tokens: Option<u64>,
 }
 
+/// Breakdown of costs for a single model, in USD.
+///
+/// All fields use [`rust_decimal::Decimal`] for exact arithmetic.
+/// Prices are in USD (not per million tokens; already scaled).
 #[derive(Debug, Clone)]
 pub struct CostBreakdown {
     pub input: rust_decimal::Decimal,
@@ -145,6 +185,7 @@ pub struct CostBreakdown {
     pub total: rust_decimal::Decimal,
 }
 
+/// Options controlling fallback chain generation.
 #[derive(Debug, Clone)]
 pub struct FallbackOptions {
     pub match_features: Option<bool>,
@@ -166,12 +207,14 @@ impl Default for FallbackOptions {
     }
 }
 
+/// A scored list of fallback models, ordered by similarity to the original.
 #[derive(Debug, Clone)]
 pub struct FallbackChain {
     pub models: Vec<FlatModel>,
     pub original: FlatModel,
 }
 
+/// Result of checking whether a prompt fits within a model's context window.
 #[derive(Debug, Clone)]
 pub struct ContextFit {
     pub fits: bool,
@@ -183,6 +226,7 @@ pub struct ContextFit {
     pub better_alternatives: Vec<FlatModel>,
 }
 
+/// One field in a model comparison, with values per model and an optional winner.
 #[derive(Debug, Clone)]
 pub struct ComparisonField {
     pub field: String,
@@ -190,19 +234,23 @@ pub struct ComparisonField {
     pub winner: Option<String>,
 }
 
+/// A value in a comparison field. Can be text, a number, or a boolean.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum FieldValue {
     Text(Option<String>),
     Number(Option<f64>),
     Bool(Option<bool>),
 }
 
+/// The result of comparing two or more models side by side.
 #[derive(Debug, Clone)]
 pub struct ModelComparison {
     pub models: Vec<FlatModel>,
     pub fields: Vec<ComparisonField>,
 }
 
+/// Errors that can occur when loading model data or looking up models.
 #[derive(Debug, thiserror::Error)]
 pub enum RouterError {
     #[error("data file not found: {0}")]
