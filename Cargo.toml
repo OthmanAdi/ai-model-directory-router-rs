@@ -1,15 +1,16 @@
 [package]
 name = "ai-model-directory-router"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.70"
-description = "Model routing, cost calculation, fallback chains, and context window management for 7000+ AI models"
+description = "Model routing, cost calculation, fallback chains, context window management, and models.dev overlay enrichment for 7000+ AI models"
 license = "Apache-2.0"
 repository = "https://github.com/OthmanAdi/ai-model-directory-router-rs"
 homepage = "https://github.com/OthmanAdi/ai-model-directory-router-rs"
 readme = "README.md"
 keywords = ["ai", "llm", "model-routing", "cost-calculation", "model-directory"]
 categories = ["algorithms", "data-structures", "science"]
+exclude = ["target/", "data/models-dev-api.json"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
