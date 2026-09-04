@@ -1,160 +1,159 @@
 use crate::store::RouterStore;
 use crate::types::*;
+use rust_decimal::Decimal;
 
+#[derive(Clone, Copy)]
 struct FeatureProfile {
-    has_tool_call: bool,
-    has_reasoning: bool,
-    has_structured_output: bool,
-    has_attachment: bool,
+    tool_call: Option<bool>,
+    reasoning: Option<bool>,
+    structured_output: Option<bool>,
+    attachment: Option<bool>,
+    temperature: Option<bool>,
 }
 
-fn get_feature_profile(model: &FlatModel) -> FeatureProfile {
-    match &model.features {
-        Some(f) => FeatureProfile {
-            has_tool_call: f.tool_call == Some(true),
-            has_reasoning: f.reasoning == Some(true),
-            has_structured_output: f.structured_output == Some(true),
-            has_attachment: f.attachment == Some(true),
-        },
-        None => FeatureProfile {
-            has_tool_call: false,
-            has_reasoning: false,
-            has_structured_output: false,
-            has_attachment: false,
-        },
+fn feature_profile(model: &FlatModel) -> FeatureProfile {
+    model
+        .features
+        .as_ref()
+        .map(|features| FeatureProfile {
+            tool_call: features.tool_call,
+            reasoning: features.reasoning,
+            structured_output: features.structured_output,
+            attachment: features.attachment,
+            temperature: features.temperature,
+        })
+        .unwrap_or(FeatureProfile {
+            tool_call: None,
+            reasoning: None,
+            structured_output: None,
+            attachment: None,
+            temperature: None,
+        })
+}
+
+fn features_match(a: FeatureProfile, b: FeatureProfile) -> bool {
+    a.tool_call == b.tool_call
+        && a.reasoning == b.reasoning
+        && a.structured_output == b.structured_output
+        && a.attachment == b.attachment
+        && a.temperature == b.temperature
+}
+
+fn contains_modalities(
+    available: Option<&[ModelModality]>,
+    required: Option<&[ModelModality]>,
+) -> bool {
+    match required {
+        None => true,
+        Some([]) => true,
+        Some(required) => available
+            .is_some_and(|available| required.iter().all(|modality| available.contains(modality))),
     }
 }
 
-fn features_match(a: &FeatureProfile, b: &FeatureProfile) -> bool {
-    a.has_tool_call == b.has_tool_call
-        && a.has_reasoning == b.has_reasoning
-        && a.has_structured_output == b.has_structured_output
-        && a.has_attachment == b.has_attachment
+fn modalities_match(candidate: &FlatModel, original: &FlatModel) -> bool {
+    let candidate = candidate.modalities.as_ref();
+    let original = original.modalities.as_ref();
+    contains_modalities(
+        candidate.and_then(|modalities| modalities.input.as_deref()),
+        original.and_then(|modalities| modalities.input.as_deref()),
+    ) && contains_modalities(
+        candidate.and_then(|modalities| modalities.output.as_deref()),
+        original.and_then(|modalities| modalities.output.as_deref()),
+    )
 }
 
-fn modality_match(a: &FlatModel, b: &FlatModel) -> bool {
-    let a_in: Vec<String> = a
-        .modalities
+fn input_price(model: &FlatModel) -> Option<Decimal> {
+    model
+        .pricing
         .as_ref()
-        .and_then(|m| m.input.as_ref())
-        .map(|v| v.iter().map(|m| format!("{:?}", m)).collect())
-        .unwrap_or_default();
-    let b_in: Vec<String> = b
-        .modalities
-        .as_ref()
-        .and_then(|m| m.input.as_ref())
-        .map(|v| v.iter().map(|m| format!("{:?}", m)).collect())
-        .unwrap_or_default();
-    let a_out: Vec<String> = a
-        .modalities
-        .as_ref()
-        .and_then(|m| m.output.as_ref())
-        .map(|v| v.iter().map(|m| format!("{:?}", m)).collect())
-        .unwrap_or_default();
-    let b_out: Vec<String> = b
-        .modalities
-        .as_ref()
-        .and_then(|m| m.output.as_ref())
-        .map(|v| v.iter().map(|m| format!("{:?}", m)).collect())
-        .unwrap_or_default();
-    b_in.iter().all(|m| a_in.contains(m)) && b_out.iter().all(|m| a_out.contains(m))
+        .and_then(|pricing| pricing.rates.input)
 }
 
-/// Generate a scored fallback chain for a model.
-///
-/// Given a model ID, returns a [`FallbackChain`] containing alternative
-/// models ranked by similarity to the original. Scoring considers feature
-/// overlap, modality compatibility, context window size, price ratio, and
-/// provider affinity.
-///
-/// # Errors
-///
-/// Returns [`RouterError::ModelNotFound`] if the given model ID does not
-/// exist in the store.
-///
-/// # Example
-///
-/// ```no_run
-/// use ai_model_directory_router::{RouterStore, fallback_chain, FallbackOptions};
-/// use std::path::Path;
-///
-/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
-/// let chain = fallback_chain(&store, "gpt-4o", &FallbackOptions::default()).unwrap();
-/// println!("Fallbacks for {}: {:?}", chain.original.id,
-///     chain.models.iter().map(|m| &m.id).collect::<Vec<_>>());
-/// ```
-pub fn fallback_chain(
+fn fallback_chain_for_model(
     store: &RouterStore,
-    model_id: &str,
+    original: &FlatModel,
     options: &FallbackOptions,
-) -> Result<FallbackChain, RouterError> {
-    let original = store
-        .find_model(model_id)
-        .ok_or_else(|| RouterError::ModelNotFound(model_id.to_string()))?
-        .clone();
-
-    let original_profile = get_feature_profile(&original);
-    let original_context = original.limit.as_ref().and_then(|l| l.context).unwrap_or(0) as f64;
-    let original_input_price = original.pricing.as_ref().and_then(|p| p.input).unwrap_or(0.0);
-
-    let max_context_diff = options.max_context_difference.unwrap_or(u64::MAX) as f64;
-    let max_price_mult = options.max_price_multiplier.unwrap_or(5.0);
+) -> FallbackChain {
+    let original_profile = feature_profile(original);
+    let original_context = original.limit.as_ref().and_then(|limit| limit.context);
+    let original_input_price = input_price(original);
+    let max_context_difference = options.max_context_difference.unwrap_or(u64::MAX);
+    let max_price_multiplier = options.max_price_multiplier.unwrap_or(Decimal::from(5u64));
     let limit = options.limit.unwrap_or(10);
-
     let mut scored: Vec<(FlatModel, i32)> = Vec::new();
 
     for candidate in store.flat_models() {
-        if candidate.id == original.id {
+        if candidate.key() == original.key() {
             continue;
         }
 
-        let mut score: i32 = 0;
-        let candidate_profile = get_feature_profile(candidate);
-
+        let mut score = 0;
+        let candidate_profile = feature_profile(candidate);
         if options.match_features.unwrap_or(false) {
-            if !features_match(&candidate_profile, &original_profile) {
+            if !features_match(candidate_profile, original_profile) {
                 continue;
             }
         } else {
-            if candidate_profile.has_tool_call && !original_profile.has_tool_call {
+            if candidate_profile.tool_call == original_profile.tool_call {
+                score += 2;
+            } else if candidate_profile.tool_call == Some(true)
+                && original_profile.tool_call != Some(true)
+            {
                 score -= 1;
             }
-            if candidate_profile.has_tool_call == original_profile.has_tool_call {
-                score += 2;
+            if candidate_profile.reasoning == original_profile.reasoning {
+                score += 1;
             }
-            if candidate_profile.has_reasoning == original_profile.has_reasoning {
+            if candidate_profile.structured_output == original_profile.structured_output {
+                score += 1;
+            }
+            if candidate_profile.attachment == original_profile.attachment {
+                score += 1;
+            }
+            if candidate_profile.temperature == original_profile.temperature {
                 score += 1;
             }
         }
 
-        if options.match_modalities.unwrap_or(false)
-            && !modality_match(candidate, &original)
-        {
+        if options.match_modalities.unwrap_or(false) && !modalities_match(candidate, original) {
             continue;
         }
 
-        let candidate_context =
-            candidate.limit.as_ref().and_then(|l| l.context).unwrap_or(0) as f64;
-        let context_diff = (candidate_context - original_context).abs();
-        if context_diff > max_context_diff {
-            continue;
-        }
-        if candidate_context >= original_context {
-            score += 2;
-        }
-
-        if let Some(candidate_price) = candidate.pricing.as_ref().and_then(|p| p.input) {
-            if original_input_price > 0.0 {
-                let ratio = candidate_price / original_input_price;
-                if ratio > max_price_mult {
+        let candidate_context = candidate.limit.as_ref().and_then(|limit| limit.context);
+        match (original_context, candidate_context) {
+            (Some(original_context), Some(candidate_context)) => {
+                if candidate_context.abs_diff(original_context) > max_context_difference {
                     continue;
                 }
-                if ratio <= 1.0 {
+                if candidate_context >= original_context {
+                    score += 2;
+                }
+            }
+            (Some(_), None) if options.max_context_difference.is_some() => continue,
+            _ => {}
+        }
+
+        match (original_input_price, input_price(candidate)) {
+            (Some(original_price), Some(candidate_price)) => {
+                let Some(maximum_price) = original_price.checked_mul(max_price_multiplier) else {
+                    continue;
+                };
+                if candidate_price > maximum_price {
+                    continue;
+                }
+                if candidate_price <= original_price {
                     score += 3;
-                } else if ratio <= 1.5 {
+                } else if candidate_price
+                    .checked_mul(Decimal::from(2u64))
+                    .zip(original_price.checked_mul(Decimal::from(3u64)))
+                    .is_some_and(|(candidate, original)| candidate <= original)
+                {
                     score += 1;
                 }
             }
+            (Some(_), None) => continue,
+            (None, _) => {}
         }
 
         if candidate.provider == original.provider {
@@ -164,10 +163,45 @@ pub fn fallback_chain(
         scored.push((candidate.clone(), score));
     }
 
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.sort_by(|(a_model, a_score), (b_model, b_score)| {
+        b_score
+            .cmp(a_score)
+            .then_with(|| a_model.provider.cmp(&b_model.provider))
+            .then_with(|| a_model.id.cmp(&b_model.id))
+    });
 
-    Ok(FallbackChain {
-        models: scored.into_iter().take(limit).map(|(m, _)| m).collect(),
-        original,
-    })
+    FallbackChain {
+        models: scored
+            .into_iter()
+            .take(limit)
+            .map(|(model, _)| model)
+            .collect(),
+        original: original.clone(),
+    }
+}
+
+/// Generate a deterministic fallback chain for a unique bare model ID.
+///
+/// Returns AmbiguousModel if multiple providers offer the ID. Use
+/// fallback_chain_for_provider to select an offering explicitly.
+pub fn fallback_chain(
+    store: &RouterStore,
+    model_id: &str,
+    options: &FallbackOptions,
+) -> Result<FallbackChain, RouterError> {
+    let original = store.resolve_model(model_id)?;
+    Ok(fallback_chain_for_model(store, original, options))
+}
+
+/// Generate a fallback chain for one provider-qualified model offering.
+pub fn fallback_chain_for_provider(
+    store: &RouterStore,
+    provider: &str,
+    model_id: &str,
+    options: &FallbackOptions,
+) -> Result<FallbackChain, RouterError> {
+    let original = store
+        .find_model_in(provider, model_id)
+        .ok_or_else(|| RouterError::ModelNotFound(format!("{provider}/{model_id}")))?;
+    Ok(fallback_chain_for_model(store, original, options))
 }

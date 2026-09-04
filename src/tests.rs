@@ -2,968 +2,728 @@ use crate::*;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
-macro_rules! dec {
-    ($s:literal) => {
-        Decimal::from_str($s).unwrap()
-    };
+fn decimal(value: &str) -> Decimal {
+    Decimal::from_str(value).unwrap()
 }
 
-const SAMPLE_JSON: &str = r#"{
-  "test-provider": {
-    "id": "test-provider",
-    "name": "Test Provider",
-    "website": "https://example.com",
-    "apiBaseUrl": "https://api.example.com/v1",
-    "models": {
-      "model-small": {
-        "id": "model-small",
-        "name": "Small Model",
-        "release_date": "1729036800",
-        "features": {
-          "attachment": false,
-          "reasoning": false,
-          "tool_call": true,
-          "structured_output": false
+fn catalog_json() -> &'static str {
+    r#"{
+        "zeta": {
+            "id": "zeta",
+            "name": "Zeta",
+            "website": "https://zeta.example",
+            "apiBaseUrl": "https://api.zeta.example",
+            "env": ["ZETA_API_KEY"],
+            "models": {
+                "unknown-model": {
+                    "id": "unknown-model",
+                    "name": "Unknown Model",
+                    "status": "sunset",
+                    "modalities": {"input": ["text", "brainwave"], "output": ["text"]},
+                    "reasoning_options": [{"type": "future", "value": true}],
+                    "interleaved": {"field": "future_content"},
+                    "limit": {"context": 2048}
+                }
+            }
         },
-        "pricing": {
-          "input": 0.50,
-          "output": 1.50
+        "openai": {
+            "id": "openai",
+            "name": "OpenAI",
+            "website": "https://openai.com",
+            "api": "https://api.openai.com/v1",
+            "doc": "https://developers.openai.com",
+            "npm": "openai",
+            "env": ["OPENAI_API_KEY"],
+            "models": {
+                "shared-model": {
+                    "id": "shared-model",
+                    "name": "OpenAI Shared",
+                    "family": "shared",
+                    "status": "beta",
+                    "attachment": false,
+                    "reasoning": true,
+                    "tool_call": true,
+                    "structured_output": true,
+                    "temperature": false,
+                    "open_weights": false,
+                    "cost": {"input": 2.5, "output": 10},
+                    "limit": {"context": 200000, "input": 150000, "output": 50000},
+                    "modalities": {"input": ["text", "image", "pdf"], "output": ["text"]}
+                },
+                "tiered-model": {
+                    "id": "tiered-model",
+                    "name": "Tiered",
+                    "knowledge": "2026-01",
+                    "release_date": "2026-02-01",
+                    "last_updated": "2026-03-01",
+                    "experimental": {"channel": "preview"},
+                    "provider": {"region": "global"},
+                    "cost": {
+                        "input": 1,
+                        "output": 2,
+                        "reasoning": 0.125,
+                        "cache_read": 0.1,
+                        "cache_write": 0.2,
+                        "input_audio": 3,
+                        "output_audio": 4,
+                        "tiers": [
+                            {"tier": {"type": "context", "size": 100}, "input": 3, "output": 4},
+                            {"tier": {"type": "context", "size": 200}, "input": 5, "output": 6}
+                        ]
+                    },
+                    "limit": {"context": 300, "input": 250, "output": 80},
+                    "modalities": {"input": ["text", "audio"], "output": ["text", "audio"]}
+                },
+                "exact-decimal": {
+                    "id": "exact-decimal",
+                    "cost": {"input": 0.1234567890123456789012345678, "output": 0.00000001},
+                    "limit": {"context": 8192}
+                },
+                "missing-output-price": {
+                    "id": "missing-output-price",
+                    "cost": {"input": 1},
+                    "limit": {"context": 4096}
+                }
+            }
         },
-        "limit": {
-          "context": 4096,
-          "output": 2048
-        },
-        "modalities": {
-          "input": ["text"],
-          "output": ["text"]
+        "anthropic": {
+            "id": "anthropic",
+            "name": "Anthropic",
+            "models": {
+                "shared-model": {
+                    "id": "shared-model",
+                    "name": "Anthropic Shared",
+                    "family": "shared",
+                    "attachment": true,
+                    "reasoning": false,
+                    "tool_call": true,
+                    "structured_output": false,
+                    "temperature": true,
+                    "open_weights": false,
+                    "cost": {"input": 3, "output": 15},
+                    "limit": {"context": 250000, "input": 200000, "output": 64000},
+                    "modalities": {"input": ["text", "image"], "output": ["text"]}
+                },
+                "cheap-model": {
+                    "id": "cheap-model",
+                    "name": "Cheap",
+                    "features": {"attachment": false, "reasoning": false, "tool_call": false, "structured_output": false, "temperature": true},
+                    "cost": {"input": 0.25, "output": 1},
+                    "limit": {"context": 100000, "input": 90000, "output": 20000},
+                    "modalities": {"input": ["text"], "output": ["text"]}
+                },
+                "unpriced-model": {
+                    "id": "unpriced-model",
+                    "limit": {"context": 500000, "input": 400000, "output": 100000}
+                }
+            }
         }
-      },
-      "model-large": {
-        "id": "model-large",
-        "name": "Large Model",
-        "open_weights": true,
-        "features": {
-          "attachment": true,
-          "reasoning": true,
-          "tool_call": true,
-          "structured_output": true
-        },
-        "pricing": {
-          "input": 3.00,
-          "output": 6.00,
-          "cache_read": 0.50,
-          "cache_write": 1.00
-        },
-        "limit": {
-          "context": 128000,
-          "input": 120000,
-          "output": 16384
-        },
-        "modalities": {
-          "input": ["text", "image", "file"],
-          "output": ["text", "image"]
+    }"#
+}
+
+fn store() -> RouterStore {
+    RouterStore::from_models_dev_json(catalog_json()).unwrap()
+}
+
+fn model_keys(models: &[FlatModel]) -> Vec<ModelKey> {
+    models.iter().map(FlatModel::key).collect()
+}
+
+#[test]
+fn store_parses_provider_metadata_and_current_flattened_schema() {
+    let store = store();
+    let provider = store.find_provider("openai").unwrap();
+    assert_eq!(provider.name, "OpenAI");
+    assert_eq!(provider.api.as_deref(), Some("https://api.openai.com/v1"));
+    assert_eq!(provider.env, ["OPENAI_API_KEY"]);
+
+    let model = store.find_model_in("openai", "tiered-model").unwrap();
+    assert_eq!(model.knowledge_cutoff.as_deref(), Some("2026-01"));
+    assert_eq!(model.release_date.as_deref(), Some("2026-02-01"));
+    assert_eq!(model.last_updated.as_deref(), Some("2026-03-01"));
+    assert_eq!(model.experimental.as_ref().unwrap()["channel"], "preview");
+    assert_eq!(model.provider_options.as_ref().unwrap()["region"], "global");
+    assert_eq!(
+        model.pricing.as_ref().unwrap().rates.reasoning,
+        Some(decimal("0.125"))
+    );
+    assert_eq!(
+        model.pricing.as_ref().unwrap().rates.input_audio,
+        Some(decimal("3"))
+    );
+}
+
+#[test]
+fn unknown_enum_values_are_forward_compatible() {
+    let model = store()
+        .find_model_in("zeta", "unknown-model")
+        .unwrap()
+        .clone();
+    assert!(matches!(model.status, Some(ModelStatus::Unknown)));
+    assert!(matches!(
+        model.modalities.as_ref().unwrap().input.as_ref().unwrap()[1],
+        ModelModality::Unknown
+    ));
+    assert!(matches!(
+        model.reasoning_options.as_ref().unwrap()[0],
+        ReasoningOption::Unknown
+    ));
+    assert!(matches!(
+        model.interleaved,
+        Some(InterleavedReasoning::Field {
+            field: InterleavedReasoningField::Unknown
+        })
+    ));
+}
+
+#[test]
+fn provider_qualified_lookup_reports_bare_id_ambiguity() {
+    let store = store();
+    let offerings = store.find_models_by_id("shared-model");
+    assert_eq!(offerings.len(), 2);
+    assert_eq!(offerings[0].provider, "anthropic");
+    assert_eq!(offerings[1].provider, "openai");
+    assert_eq!(
+        store
+            .find_model_in("openai", "shared-model")
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("OpenAI Shared")
+    );
+    assert!(store.find_model("shared-model").is_none());
+    match store.resolve_model("shared-model") {
+        Err(RouterError::AmbiguousModel {
+            model_id,
+            providers,
+        }) => {
+            assert_eq!(model_id, "shared-model");
+            assert_eq!(providers, ["anthropic", "openai"]);
         }
-      },
-      "model-audio": {
-        "id": "model-audio",
-        "name": "Audio Model",
-        "features": {
-          "attachment": false,
-          "reasoning": false,
-          "tool_call": false,
-          "structured_output": false
-        },
-        "pricing": {
-          "input": 1.00,
-          "output": 2.00,
-          "input_audio": 5.00,
-          "output_audio": 10.00
-        },
-        "limit": {
-          "context": 32000
-        },
-        "modalities": {
-          "input": ["text", "audio"],
-          "output": ["text", "audio"]
-        }
-      }
-    }
-  },
-  "other-provider": {
-    "id": "other-provider",
-    "name": "Other Provider",
-    "apiBaseUrl": "https://other.example.com/v1",
-    "models": {
-      "other-cheap": {
-        "id": "other-cheap",
-        "name": "Cheap Other",
-        "open_weights": true,
-        "features": {
-          "attachment": false,
-          "reasoning": false,
-          "tool_call": true,
-          "structured_output": false
-        },
-        "pricing": {
-          "input": 0.10,
-          "output": 0.20
-        },
-        "limit": {
-          "context": 8192,
-          "output": 4096
-        },
-        "modalities": {
-          "input": ["text"],
-          "output": ["text"]
-        }
-      },
-      "other-big": {
-        "id": "other-big",
-        "name": "Big Other",
-        "features": {
-          "attachment": true,
-          "reasoning": true,
-          "tool_call": true,
-          "structured_output": true,
-          "temperature": true
-        },
-        "pricing": {
-          "input": 10.00,
-          "output": 30.00
-        },
-        "limit": {
-          "context": 200000,
-          "output": 8192
-        },
-        "modalities": {
-          "input": ["text", "image"],
-          "output": ["text"]
-        }
-      }
-    }
-  }
-}"#;
-
-fn test_store() -> RouterStore {
-    RouterStore::from_json(SAMPLE_JSON).unwrap()
-}
-
-#[test]
-fn store_from_json_parses_all_models() {
-    let store = test_store();
-    assert_eq!(store.flat_models().len(), 5);
-}
-
-#[test]
-fn store_find_model_returns_correct_model() {
-    let store = test_store();
-    let m = store.find_model("model-large").unwrap();
-    assert_eq!(m.id, "model-large");
-    assert_eq!(m.name.as_deref(), Some("Large Model"));
-    assert_eq!(m.provider, "test-provider");
-    assert_eq!(m.open_weights, Some(true));
-}
-
-#[test]
-fn store_find_model_returns_none_for_unknown() {
-    let store = test_store();
-    assert!(store.find_model("nonexistent").is_none());
-}
-
-#[test]
-fn store_find_models_by_provider_filters_correctly() {
-    let store = test_store();
-    let tp = store.find_models_by_provider("test-provider");
-    assert_eq!(tp.len(), 3);
-    let op = store.find_models_by_provider("other-provider");
-    assert_eq!(op.len(), 2);
-}
-
-#[test]
-fn store_find_models_by_provider_is_case_insensitive() {
-    let store = test_store();
-    assert_eq!(store.find_models_by_provider("TEST-PROVIDER").len(), 3);
-}
-
-#[test]
-fn store_provider_entry_deserializes_camel_case() {
-    let store = test_store();
-    let m = store.find_model("model-small").unwrap();
-    assert_eq!(m.provider, "test-provider");
-    let provider_models = store.find_models_by_provider("test-provider");
-    assert_eq!(provider_models.len(), 3);
-}
-
-#[test]
-fn cost_basic_calculation() {
-    let store = test_store();
-    let model = store.find_model("model-small").unwrap();
-    let req = CostRequest {
-        input_tokens: 1_000_000,
-        output_tokens: 1_000_000,
-        reasoning_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-        input_audio_tokens: None,
-        output_audio_tokens: None,
-    };
-    let breakdown = calculate_cost_for_model(model, &req);
-    assert_eq!(breakdown.input, dec!("0.50"));
-    assert_eq!(breakdown.output, dec!("1.50"));
-    assert_eq!(breakdown.total, dec!("2.00"));
-}
-
-#[test]
-fn cost_with_cache_tokens() {
-    let store = test_store();
-    let model = store.find_model("model-large").unwrap();
-    let req = CostRequest {
-        input_tokens: 500_000,
-        output_tokens: 250_000,
-        reasoning_tokens: None,
-        cache_read_tokens: Some(200_000),
-        cache_write_tokens: Some(100_000),
-        input_audio_tokens: None,
-        output_audio_tokens: None,
-    };
-    let breakdown = calculate_cost_for_model(model, &req);
-    assert_eq!(breakdown.input, dec!("1.50"));
-    assert_eq!(breakdown.output, dec!("1.50"));
-    assert_eq!(breakdown.cache_read, dec!("0.10"));
-    assert_eq!(breakdown.cache_write, dec!("0.10"));
-}
-
-#[test]
-fn cost_with_audio_tokens() {
-    let store = test_store();
-    let model = store.find_model("model-audio").unwrap();
-    let req = CostRequest {
-        input_tokens: 100_000,
-        output_tokens: 50_000,
-        reasoning_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-        input_audio_tokens: Some(10_000),
-        output_audio_tokens: Some(5_000),
-    };
-    let breakdown = calculate_cost_for_model(model, &req);
-    assert_eq!(breakdown.input, dec!("0.10"));
-    assert_eq!(breakdown.output, dec!("0.10"));
-    assert_eq!(breakdown.input_audio, dec!("0.05"));
-    assert_eq!(breakdown.output_audio, dec!("0.05"));
-}
-
-#[test]
-fn cost_zero_tokens() {
-    let store = test_store();
-    let model = store.find_model("model-small").unwrap();
-    let req = CostRequest {
-        input_tokens: 0,
-        output_tokens: 0,
-        reasoning_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-        input_audio_tokens: None,
-        output_audio_tokens: None,
-    };
-    let breakdown = calculate_cost_for_model(model, &req);
-    assert_eq!(breakdown.total, Decimal::ZERO);
-}
-
-#[test]
-fn estimate_request_cost_basic() {
-    let cost = estimate_request_cost(Some(1.0), Some(2.0), 1_000_000, 500_000);
-    assert_eq!(cost, dec!("2"));
-}
-
-#[test]
-fn route_no_filters_returns_all() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: None,
-        order: None,
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.total, 5);
-    assert_eq!(result.models.len(), 5);
-    assert!(!result.has_more);
-}
-
-#[test]
-fn route_filter_by_provider() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: Some("test-provider".to_string()),
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: None,
-        order: None,
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.total, 3);
-}
-
-#[test]
-fn route_filter_by_open_weights() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: Some(true),
-        sort: None,
-        order: None,
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.total, 2);
-    for m in &result.models {
-        assert_eq!(m.open_weights, Some(true));
+        result => panic!("unexpected result: {result:?}"),
     }
 }
 
 #[test]
-fn route_filter_by_min_context() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: Some(100_000),
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: None,
-        order: None,
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.total, 2);
-    for m in &result.models {
-        let ctx = m.limit.as_ref().and_then(|l| l.context).unwrap_or(0);
-        assert!(ctx >= 100_000);
-    }
+fn store_and_default_route_order_are_deterministic() {
+    let store = store();
+    let expected = vec![
+        ModelKey::new("anthropic", "cheap-model"),
+        ModelKey::new("anthropic", "shared-model"),
+        ModelKey::new("anthropic", "unpriced-model"),
+        ModelKey::new("openai", "exact-decimal"),
+        ModelKey::new("openai", "missing-output-price"),
+        ModelKey::new("openai", "shared-model"),
+        ModelKey::new("openai", "tiered-model"),
+        ModelKey::new("zeta", "unknown-model"),
+    ];
+    assert_eq!(model_keys(store.flat_models()), expected);
+    let routed = route(&store, &RouteQuery::default());
+    assert_eq!(model_keys(&routed.models), expected);
 }
 
 #[test]
-fn route_filter_by_max_price() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: Some(1.0),
-        max_output_price: None,
-        open_weights: None,
-        sort: None,
-        order: None,
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.total, 3);
-}
-
-#[test]
-fn route_filter_by_input_modality() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: Some(vec![ModelModality::Text, ModelModality::Image]),
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: None,
-        order: None,
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.total, 2);
-}
-
-#[test]
-fn route_filter_by_features() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: Some(ModelFeatures {
-            tool_call: Some(true),
-            reasoning: Some(true),
-            attachment: None,
-            structured_output: None,
-            temperature: None,
-        }),
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: None,
-        order: None,
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.total, 2);
-}
-
-#[test]
-fn route_pagination() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: Some(SortField::Id),
-        order: Some(SortOrder::Asc),
-        limit: Some(2),
-        offset: Some(0),
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.models.len(), 2);
-    assert_eq!(result.total, 5);
-    assert!(result.has_more);
-}
-
-#[test]
-fn route_offset_beyond_total() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: None,
-        order: None,
-        limit: Some(10),
-        offset: Some(100),
-    };
-    let result = route(&store, &query);
-    assert_eq!(result.models.len(), 0);
-    assert_eq!(result.total, 5);
-    assert!(!result.has_more);
-}
-
-#[test]
-fn route_sort_by_context_desc() {
-    let store = test_store();
-    let query = RouteQuery {
-        provider: None,
-        input_modalities: None,
-        output_modalities: None,
-        features: None,
-        min_context: None,
-        max_input_price: None,
-        max_output_price: None,
-        open_weights: None,
-        sort: Some(SortField::Context),
-        order: Some(SortOrder::Desc),
-        limit: None,
-        offset: None,
-    };
-    let result = route(&store, &query);
-    let first_ctx = result.models[0]
-        .limit
-        .as_ref()
-        .and_then(|l| l.context)
-        .unwrap_or(0);
-    let last_ctx = result.models[4]
-        .limit
-        .as_ref()
-        .and_then(|l| l.context)
-        .unwrap_or(0);
-    assert!(first_ctx >= last_ctx);
-}
-
-#[test]
-fn fallback_returns_alternatives() {
-    let store = test_store();
-    let chain =
-        fallback_chain(&store, "model-small", &FallbackOptions::default()).unwrap();
-    assert_eq!(chain.original.id, "model-small");
-    assert!(!chain.models.is_empty());
-    assert!(chain.models.iter().all(|m| m.id != "model-small"));
-}
-
-#[test]
-fn fallback_model_not_found() {
-    let store = test_store();
-    let result = fallback_chain(&store, "nonexistent", &FallbackOptions::default());
-    assert!(result.is_err());
-}
-
-#[test]
-fn fallback_match_features() {
-    let store = test_store();
-    let chain = fallback_chain(
+fn route_pagination_handles_boundaries_and_overflow() {
+    let store = store();
+    let page = route(
         &store,
-        "model-small",
-        &FallbackOptions {
-            match_features: Some(true),
-            ..FallbackOptions::default()
+        &RouteQuery {
+            offset: Some(2),
+            limit: Some(3),
+            ..RouteQuery::default()
+        },
+    );
+    assert_eq!(page.total, 8);
+    assert_eq!(page.models.len(), 3);
+    assert!(page.has_more);
+
+    let zero = route(
+        &store,
+        &RouteQuery {
+            limit: Some(0),
+            ..RouteQuery::default()
+        },
+    );
+    assert!(zero.models.is_empty());
+    assert!(!zero.has_more);
+
+    let overflow = route(
+        &store,
+        &RouteQuery {
+            offset: Some(usize::MAX),
+            limit: Some(usize::MAX),
+            ..RouteQuery::default()
+        },
+    );
+    assert!(overflow.models.is_empty());
+    assert!(!overflow.has_more);
+}
+
+#[test]
+fn route_filters_false_features_exactly() {
+    let result = route(
+        &store(),
+        &RouteQuery {
+            features: Some(ModelFeatures {
+                attachment: Some(false),
+                reasoning: Some(false),
+                tool_call: Some(false),
+                structured_output: Some(false),
+                temperature: Some(true),
+            }),
+            ..RouteQuery::default()
+        },
+    );
+    assert_eq!(
+        model_keys(&result.models),
+        [ModelKey::new("anthropic", "cheap-model")]
+    );
+}
+
+#[test]
+fn route_filters_provider_identity_family_status_and_modalities() {
+    let result = route(
+        &store(),
+        &RouteQuery {
+            provider: Some("OPENAI".to_owned()),
+            model_id: Some("shared-model".to_owned()),
+            family: Some("SHARED".to_owned()),
+            status: Some(ModelStatus::Beta),
+            input_modalities: Some(vec![ModelModality::Text, ModelModality::Pdf]),
+            output_modalities: Some(vec![ModelModality::Text]),
+            open_weights: Some(false),
+            ..RouteQuery::default()
+        },
+    );
+    assert_eq!(
+        model_keys(&result.models),
+        [ModelKey::new("openai", "shared-model")]
+    );
+}
+
+#[test]
+fn missing_numeric_values_sort_last_in_both_directions() {
+    let store = store();
+    for order in [SortOrder::Asc, SortOrder::Desc] {
+        let result = route(
+            &store,
+            &RouteQuery {
+                sort: Some(SortField::InputPrice),
+                order: Some(order),
+                ..RouteQuery::default()
+            },
+        );
+        let unpriced = result
+            .models
+            .iter()
+            .position(|model| model.id == "unpriced-model")
+            .unwrap();
+        let unknown = result
+            .models
+            .iter()
+            .position(|model| model.id == "unknown-model")
+            .unwrap();
+        assert!(unpriced >= result.models.len() - 2);
+        assert!(unknown >= result.models.len() - 2);
+    }
+}
+
+#[test]
+fn decimal_price_lexemes_remain_exact() {
+    let store = store();
+    let price = store
+        .find_model_in("openai", "exact-decimal")
+        .unwrap()
+        .pricing
+        .as_ref()
+        .unwrap()
+        .rates
+        .input;
+    assert_eq!(price, Some(decimal("0.1234567890123456789012345678")));
+    assert_eq!(
+        estimate_request_cost(price, Some(decimal("0.00000001")), 1_000_000, 1_000_000),
+        Some(decimal("0.1234567990123456789012345678"))
+    );
+}
+
+#[test]
+fn cost_uses_highest_tier_whose_boundary_has_started() {
+    let model = store()
+        .find_model_in("openai", "tiered-model")
+        .unwrap()
+        .clone();
+    let cases = [
+        (99, None, decimal("3")),
+        (100, Some(100), decimal("7")),
+        (199, Some(100), decimal("7")),
+        (200, Some(200), decimal("11")),
+        (250, Some(200), decimal("11")),
+    ];
+    for (context_tokens, applied_tier, expected_total) in cases {
+        let result = calculate_cost_for_model(
+            &model,
+            &CostRequest {
+                input_tokens: 1_000_000,
+                output_tokens: 1_000_000,
+                context_tokens: Some(context_tokens),
+                ..CostRequest::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(result.applied_tier, applied_tier);
+        assert_eq!(result.total, expected_total);
+    }
+}
+
+#[test]
+fn cost_rejects_missing_price_for_nonzero_usage() {
+    let model = store()
+        .find_model_in("openai", "missing-output-price")
+        .unwrap()
+        .clone();
+    let error = calculate_cost_for_model(
+        &model,
+        &CostRequest {
+            input_tokens: 0,
+            output_tokens: 1,
+            ..CostRequest::default()
         },
     )
-    .unwrap();
-    for m in &chain.models {
-        assert_eq!(m.features.as_ref().and_then(|f| f.tool_call), Some(true));
-    }
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        RouterError::MissingPriceComponent {
+            component: CostComponent::Output,
+            ..
+        }
+    ));
+
+    let zero = calculate_cost_for_model(&model, &CostRequest::default()).unwrap();
+    assert_eq!(zero.total, Decimal::ZERO);
 }
 
 #[test]
-fn fallback_limits_results() {
-    let store = test_store();
-    let chain = fallback_chain(
+fn context_fit_checks_overflow_and_each_limit_separately() {
+    let store = store();
+    assert!(matches!(
+        check_context_fit_for_provider(&store, "openai", "tiered-model", u64::MAX, Some(1)),
+        Err(RouterError::TokenOverflow)
+    ));
+
+    let input_failure =
+        check_context_fit_for_provider(&store, "openai", "tiered-model", 251, Some(1)).unwrap();
+    assert!(input_failure.context_fits);
+    assert!(!input_failure.input_fits);
+    assert!(input_failure.output_fits);
+    assert!(!input_failure.fits);
+    assert!(input_failure.should_compact);
+
+    let output_failure =
+        check_context_fit_for_provider(&store, "openai", "tiered-model", 1, Some(81)).unwrap();
+    assert!(output_failure.context_fits);
+    assert!(output_failure.input_fits);
+    assert!(!output_failure.output_fits);
+    assert!(!output_failure.should_compact);
+
+    let context_failure =
+        check_context_fit_for_provider(&store, "openai", "tiered-model", 250, Some(80)).unwrap();
+    assert!(!context_failure.context_fits);
+    assert!(context_failure.input_fits);
+    assert!(context_failure.output_fits);
+    assert_eq!(context_failure.overhead, -30);
+}
+
+#[test]
+fn bare_context_and_fallback_calls_reject_ambiguity() {
+    let store = store();
+    assert!(matches!(
+        check_context_fit(&store, "shared-model", 1, None),
+        Err(RouterError::AmbiguousModel { .. })
+    ));
+    assert!(matches!(
+        fallback_chain(&store, "shared-model", &FallbackOptions::default()),
+        Err(RouterError::AmbiguousModel { .. })
+    ));
+}
+
+#[test]
+fn fallback_and_best_context_selection_are_deterministic() {
+    let store = store();
+    let chain = fallback_chain_for_provider(
         &store,
-        "model-small",
+        "anthropic",
+        "cheap-model",
         &FallbackOptions {
             limit: Some(2),
             ..FallbackOptions::default()
         },
     )
     .unwrap();
+    assert_eq!(
+        chain.original.key(),
+        ModelKey::new("anthropic", "cheap-model")
+    );
     assert!(chain.models.len() <= 2);
+    let best = find_best_context_model(&store, 80_000, None).unwrap();
+    assert_eq!(best.key(), ModelKey::new("anthropic", "cheap-model"));
 }
 
 #[test]
-fn fallback_prefers_same_provider() {
-    let store = test_store();
-    let chain =
-        fallback_chain(&store, "model-small", &FallbackOptions::default()).unwrap();
-    if chain.models.len() > 1 {
-        let same_provider_count = chain
-            .models
-            .iter()
-            .filter(|m| m.provider == "test-provider")
-            .count();
-        let other_provider_count = chain
-            .models
-            .iter()
-            .filter(|m| m.provider != "test-provider")
-            .count();
-        assert!(same_provider_count >= other_provider_count);
-    }
-}
-
-#[test]
-fn context_fit_model_fits() {
-    let store = test_store();
-    let fit = check_context_fit(&store, "model-large", 50_000, Some(10_000)).unwrap();
-    assert!(fit.fits);
-    assert_eq!(fit.available_context, 128_000);
-    assert_eq!(fit.requested_tokens, 60_000);
-    assert!(!fit.should_compact);
-    assert!(fit.overhead > 0);
-}
-
-#[test]
-fn context_fit_model_does_not_fit() {
-    let store = test_store();
-    let fit = check_context_fit(&store, "model-small", 5_000, None).unwrap();
-    assert!(!fit.fits);
-    assert!(fit.should_compact);
-}
-
-#[test]
-fn context_fit_model_not_found() {
-    let store = test_store();
-    let result = check_context_fit(&store, "nonexistent", 100, None);
-    assert!(result.is_err());
-}
-
-#[test]
-fn context_fit_suggests_alternatives() {
-    let store = test_store();
-    let fit = check_context_fit(&store, "model-small", 100_000, None).unwrap();
-    assert!(!fit.fits);
-    assert!(!fit.better_alternatives.is_empty());
-    for alt in &fit.better_alternatives {
-        let ctx = alt.limit.as_ref().and_then(|l| l.context).unwrap_or(0);
-        assert!(ctx > 4096);
-    }
-}
-
-#[test]
-fn find_best_context_model_basic() {
-    let store = test_store();
-    let best = find_best_context_model(&store, 100_000, None);
-    assert!(best.is_some());
-    let m = best.unwrap();
-    let ctx = m.limit.as_ref().and_then(|l| l.context).unwrap_or(0);
-    assert!(ctx >= 100_000);
-}
-
-#[test]
-fn find_best_context_model_with_provider() {
-    let store = test_store();
-    let best = find_best_context_model(&store, 5_000, Some("test-provider"));
-    assert!(best.is_some());
-    assert_eq!(best.as_ref().unwrap().provider, "test-provider");
-}
-
-#[test]
-fn find_best_context_model_none_when_too_large() {
-    let store = test_store();
-    let best = find_best_context_model(&store, 999_999_999, None);
-    assert!(best.is_none());
-}
-
-#[test]
-fn find_best_context_model_cheapest_first() {
-    let store = test_store();
-    let best = find_best_context_model(&store, 1_000, None);
-    assert!(best.is_some());
-    let m = best.unwrap();
-    let price = m.pricing.as_ref().and_then(|p| p.input).unwrap_or(f64::MAX);
-    assert_eq!(price, 0.10);
-}
-
-#[test]
-fn compare_two_models() {
-    let store = test_store();
-    let comp = compare(&store, &["model-small", "model-large"]);
-    assert_eq!(comp.models.len(), 2);
-    assert!(!comp.fields.is_empty());
-    let context_field = comp.fields.iter().find(|f| f.field == "context").unwrap();
-    assert_eq!(context_field.winner.as_deref(), Some("model-large"));
-    let input_price_field = comp
+fn comparison_uses_provider_qualified_keys_without_overwrite() {
+    let store = store();
+    let keys = [
+        ModelKey::new("openai", "shared-model"),
+        ModelKey::new("anthropic", "shared-model"),
+    ];
+    let comparison = compare_models(&store, &keys).unwrap();
+    assert_eq!(comparison.models.len(), 2);
+    let prices = comparison
         .fields
         .iter()
-        .find(|f| f.field == "input_price")
+        .find(|field| field.field == "input_price")
         .unwrap();
-    assert_eq!(input_price_field.winner.as_deref(), Some("model-small"));
+    assert_eq!(prices.values.len(), 2);
+    assert_eq!(prices.winners, [ModelKey::new("openai", "shared-model")]);
+    assert!(matches!(
+        compare(&store, &["shared-model"]),
+        Err(RouterError::AmbiguousModel { .. })
+    ));
 }
 
 #[test]
-fn compare_single_model_returns_empty_fields() {
-    let store = test_store();
-    let comp = compare(&store, &["model-small"]);
-    assert_eq!(comp.models.len(), 1);
-    assert!(comp.fields.is_empty());
+fn overlay_requires_exact_provider_and_model_identity() {
+    let base = r#"{
+        "alibaba": {"id":"alibaba","name":"Alibaba","models":{"qwen":{"id":"qwen","name":"Global","cost":{"input":1}}}},
+        "alibaba-cn": {"id":"alibaba-cn","name":"Alibaba China","models":{"qwen":{"id":"qwen","name":"China","cost":{"input":2}}}}
+    }"#;
+    let overlay = r#"{
+        "alibaba-cn": {"id":"alibaba-cn","name":"Alibaba China","models":{"qwen":{"id":"qwen","name":"China Updated","cost":{"input":9}}}}
+    }"#;
+    let mut store = RouterStore::from_models_dev_json(base).unwrap();
+    let report = store
+        .apply_overlay_from_json(overlay, OverlayMode::PreferOverlay)
+        .unwrap();
+    assert_eq!(report.models_touched, 1);
+    assert_eq!(report.models_unmatched, 1);
+    assert_eq!(
+        store
+            .find_model_in("alibaba", "qwen")
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("Global")
+    );
+    assert_eq!(
+        store
+            .find_model_in("alibaba", "qwen")
+            .unwrap()
+            .pricing
+            .as_ref()
+            .unwrap()
+            .rates
+            .input,
+        Some(decimal("1"))
+    );
+    assert_eq!(
+        store
+            .find_model_in("alibaba-cn", "qwen")
+            .unwrap()
+            .name
+            .as_deref(),
+        Some("China Updated")
+    );
+    assert_eq!(
+        store
+            .find_model_in("alibaba-cn", "qwen")
+            .unwrap()
+            .pricing
+            .as_ref()
+            .unwrap()
+            .rates
+            .input,
+        Some(decimal("9"))
+    );
 }
 
 #[test]
-fn compare_unknown_models_skipped() {
-    let store = test_store();
-    let comp = compare(&store, &["model-small", "nonexistent"]);
-    assert_eq!(comp.models.len(), 1);
-    assert!(comp.fields.is_empty());
+fn overlay_fill_only_is_field_level_and_idempotent() {
+    let base =
+        r#"{"p":{"id":"p","name":"P","models":{"m":{"id":"m","name":"Base","cost":{"input":1}}}}}"#;
+    let overlay = r#"{"p":{"id":"p","name":"P","models":{"m":{"id":"m","name":"Overlay","description":"Added","cost":{"input":9,"output":2}}}}}"#;
+    let mut store = RouterStore::from_models_dev_json(base).unwrap();
+    let first = store
+        .apply_overlay_from_json(overlay, OverlayMode::FillOnly)
+        .unwrap();
+    assert_eq!(first.models_touched, 1);
+    let model = store.find_model_in("p", "m").unwrap();
+    assert_eq!(model.name.as_deref(), Some("Base"));
+    assert_eq!(model.description.as_deref(), Some("Added"));
+    assert_eq!(
+        model.pricing.as_ref().unwrap().rates.input,
+        Some(decimal("1"))
+    );
+    assert_eq!(
+        model.pricing.as_ref().unwrap().rates.output,
+        Some(decimal("2"))
+    );
+    assert_eq!(
+        store
+            .apply_overlay_from_json(overlay, OverlayMode::FillOnly)
+            .unwrap()
+            .fields_written,
+        0
+    );
 }
 
-// ─────────────────────────── Overlay tests ──────────────────────────
+#[test]
+fn empty_overlay_objects_do_not_mutate_absent_fields() {
+    let base = r#"{"p":{"id":"p","name":"P","models":{"m":{"id":"m"}}}}"#;
+    let overlay = r#"{"p":{"id":"p","name":"P","models":{"m":{"id":"m","features":{},"cost":{},"limit":{},"modalities":{}}}}}"#;
+    let mut store = RouterStore::from_models_dev_json(base).unwrap();
+    let report = store
+        .apply_overlay_from_json(overlay, OverlayMode::FillOnly)
+        .unwrap();
+    let model = store.find_model_in("p", "m").unwrap();
+    assert_eq!(report.fields_written, 0);
+    assert_eq!(report.models_touched, 0);
+    assert!(model.features.is_none());
+    assert!(model.pricing.is_none());
+    assert!(model.limit.is_none());
+    assert!(model.modalities.is_none());
+}
 
-const OVERLAY_JSON: &str = r#"{
-  "test-provider": {
-    "id": "test-provider",
-    "models": {
-      "model-small": {
-        "id": "model-small",
-        "attachment": true,
-        "tool_call": true,
-        "reasoning": false,
-        "knowledge": "2024-01",
-        "cost": { "input": 0.4, "output": 1.4, "cache_read": 0.05 },
-        "limit": { "context": 8192, "output": 4096 },
-        "modalities": { "input": ["text", "pdf"], "output": ["text"] }
-      },
-      "model-large": {
-        "id": "model-large",
-        "tool_call": true,
-        "cost": { "input": 99.0 },
-        "modalities": { "input": ["text", "image", "audio"], "output": ["text", "image"] }
-      }
-    }
-  },
-  "alibaba": {
-    "id": "alibaba",
-    "models": {
-      "test-aliased": {
-        "id": "test-aliased",
-        "tool_call": true,
-        "limit": { "context": 200000 }
-      },
-      "missing-only": {
-        "id": "missing-only",
-        "tool_call": false,
-        "cost": { "input": 1.0, "output": 2.0 },
-        "limit": { "context": 16000 }
-      }
-    }
-  }
-}"#;
+#[test]
+fn catalog_rejects_map_and_embedded_identity_mismatches() {
+    let provider_mismatch = r#"{"outer":{"id":"inner","name":"P","models":{"m":{"id":"m"}}}}"#;
+    assert!(matches!(
+        RouterStore::from_models_dev_json(provider_mismatch),
+        Err(RouterError::InvalidCatalogIdentity(_))
+    ));
 
-fn overlay_store_with_extra_provider() -> RouterStore {
-    let mut sample: serde_json::Value = serde_json::from_str(SAMPLE_JSON).unwrap();
-    sample
-        .as_object_mut()
-        .unwrap()
-        .insert(
-            "alibaba-cn".to_string(),
-            serde_json::json!({
-                "id": "alibaba-cn",
-                "name": "Alibaba CN",
-                "apiBaseUrl": "https://example.com/v1",
-                "models": {
-                    "test-aliased": {
-                        "id": "test-aliased",
-                        "name": "Test Aliased"
-                    },
-                    "missing-only": {
-                        "id": "missing-only",
-                        "name": "Missing Only"
+    let model_mismatch = r#"{"p":{"id":"p","name":"P","models":{"outer":{"id":"inner"}}}}"#;
+    assert!(matches!(
+        RouterStore::from_models_dev_json(model_mismatch),
+        Err(RouterError::InvalidCatalogIdentity(_))
+    ));
+
+    let negative_price =
+        r#"{"p":{"id":"p","name":"P","models":{"m":{"id":"m","cost":{"input":-1,"output":1}}}}}"#;
+    assert!(matches!(
+        RouterStore::from_models_dev_json(negative_price),
+        Err(RouterError::InvalidCatalogValue(_))
+    ));
+}
+
+#[test]
+fn extreme_decimal_inputs_do_not_panic_routing_helpers() {
+    let json = r#"{
+        "p": {
+            "id": "p",
+            "name": "P",
+            "models": {
+                "max": {
+                    "id": "max",
+                    "limit": {"context": 1},
+                    "cost": {"input": 79228162514264337593543950335, "output": 0}
+                },
+                "candidate": {
+                    "id": "candidate",
+                    "limit": {"context": 2},
+                    "cost": {"input": 1, "output": 0}
+                }
+            }
+        }
+    }"#;
+    let store = RouterStore::from_models_dev_json(json).unwrap();
+    let fit = check_context_fit_for_provider(&store, "p", "max", 2, None).unwrap();
+    assert!(fit.better_alternatives.is_empty());
+    let chain = fallback_chain_for_provider(
+        &store,
+        "p",
+        "max",
+        &FallbackOptions {
+            max_price_multiplier: Some(Decimal::MAX),
+            ..FallbackOptions::default()
+        },
+    )
+    .unwrap();
+    assert!(chain.models.is_empty());
+
+    let model = store.find_model_in("p", "max").unwrap();
+    assert!(matches!(
+        calculate_cost_for_model(
+            model,
+            &CostRequest {
+                input_tokens: 2,
+                ..CostRequest::default()
+            }
+        ),
+        Err(RouterError::TokenOverflow)
+    ));
+}
+
+#[test]
+fn unknown_price_tier_kinds_are_not_applied_as_context_tiers() {
+    let json = r#"{
+        "p": {
+            "id": "p",
+            "name": "P",
+            "models": {
+                "m": {
+                    "id": "m",
+                    "cost": {
+                        "input": 1,
+                        "output": 2,
+                        "tiers": [
+                            {"tier": {"type": "future_kind", "size": 0}, "input": 9, "output": 10}
+                        ]
                     }
                 }
-            }),
-        );
-    RouterStore::from_json(&serde_json::to_string(&sample).unwrap()).unwrap()
-}
-
-#[test]
-fn overlay_fill_only_fills_missing_fields() {
-    let mut store = overlay_store_with_extra_provider();
-    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
-    let report = store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    assert!(report.fields_written > 0);
-    let m = store.find_model("model-small").unwrap();
-    assert_eq!(
-        m.features.as_ref().and_then(|f| f.attachment),
-        Some(false),
-        "existing feature should not be overwritten under FillOnly"
-    );
-    assert_eq!(
-        m.features.as_ref().and_then(|f| f.reasoning),
-        Some(false),
-        "missing reasoning flag should now be filled"
-    );
-}
-
-#[test]
-fn overlay_prefer_overlay_overwrites_existing_fields() {
-    let mut store = overlay_store_with_extra_provider();
-    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
-    store.apply_overlay(&overlay, OverlayMode::PreferOverlay);
-    let m = store.find_model("model-small").unwrap();
-    assert_eq!(
-        m.features.as_ref().and_then(|f| f.attachment),
-        Some(true),
-        "PreferOverlay should overwrite false with true"
-    );
-    assert_eq!(
-        m.pricing.as_ref().and_then(|p| p.input),
-        Some(0.4),
-        "PreferOverlay should overwrite price from 0.5 to 0.4"
-    );
-}
-
-#[test]
-fn overlay_fills_pricing_for_model_missing_fields() {
-    let mut store = overlay_store_with_extra_provider();
-    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
-    store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    let m = store.find_model("missing-only").unwrap();
-    assert_eq!(m.pricing.as_ref().and_then(|p| p.input), Some(1.0));
-    assert_eq!(m.pricing.as_ref().and_then(|p| p.output), Some(2.0));
-    assert_eq!(m.limit.as_ref().and_then(|l| l.context), Some(16000));
-    assert_eq!(m.features.as_ref().and_then(|f| f.tool_call), Some(false));
-}
-
-#[test]
-fn overlay_pdf_modality_maps_to_file() {
-    let mut store = overlay_store_with_extra_provider();
-    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
-    store.apply_overlay(&overlay, OverlayMode::PreferOverlay);
-    let m = store.find_model("model-small").unwrap();
-    let inputs = m.modalities.as_ref().and_then(|x| x.input.as_ref()).unwrap();
-    assert!(inputs.contains(&ModelModality::Text));
-    assert!(inputs.contains(&ModelModality::File));
-    assert!(!inputs.iter().any(|x| format!("{:?}", x).to_lowercase().contains("pdf")));
-}
-
-#[test]
-fn overlay_canonical_fallback_matches_aggregator_provider() {
-    // Build a store where an aggregator-style provider ("aggregator-co")
-    // hosts gpt-* and claude-* models without a slash prefix. The overlay
-    // only knows the canonical providers. The canonical fallback should
-    // bridge them.
-    let sample = serde_json::json!({
-        "aggregator-co": {
-            "id": "aggregator-co",
-            "name": "Aggregator Co",
-            "apiBaseUrl": "https://agg.example.com/v1",
-            "models": {
-                "gpt-canary-mini": { "id": "gpt-canary-mini", "name": "GPT Canary Mini" },
-                "claude-canary": { "id": "claude-canary", "name": "Claude Canary" }
             }
         }
-    });
-    let mut store = RouterStore::from_json(&serde_json::to_string(&sample).unwrap()).unwrap();
-    let overlay_json = r#"{
-        "openai": {
-            "id": "openai",
-            "models": {
-                "gpt-canary-mini": {
-                    "id": "gpt-canary-mini",
-                    "tool_call": true,
-                    "cost": { "input": 0.1 },
-                    "limit": { "context": 64000 }
-                }
-            }
+    }"#;
+    let store = RouterStore::from_models_dev_json(json).unwrap();
+    let model = store.find_model_in("p", "m").unwrap();
+    let cost = calculate_cost_for_model(
+        model,
+        &CostRequest {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            context_tokens: Some(1_000_000),
+            ..CostRequest::default()
         },
-        "anthropic": {
-            "id": "anthropic",
-            "models": {
-                "claude-canary": {
-                    "id": "claude-canary",
-                    "tool_call": true,
-                    "cost": { "input": 5.0 },
-                    "limit": { "context": 200000 }
-                }
-            }
-        }
-    }"#;
-    let overlay = parse_models_dev(overlay_json).unwrap();
-    let report = store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    assert_eq!(report.models_touched, 2);
-    let gpt = store.find_model("gpt-canary-mini").unwrap();
-    assert_eq!(gpt.features.as_ref().and_then(|f| f.tool_call), Some(true));
-    assert_eq!(gpt.limit.as_ref().and_then(|l| l.context), Some(64000));
-    let claude = store.find_model("claude-canary").unwrap();
-    assert_eq!(claude.features.as_ref().and_then(|f| f.tool_call), Some(true));
-    assert_eq!(claude.limit.as_ref().and_then(|l| l.context), Some(200000));
+    )
+    .unwrap();
+    assert_eq!(cost.input, decimal("1"));
+    assert_eq!(cost.output, decimal("2"));
+    assert_eq!(cost.applied_tier, None);
 }
 
+#[cfg(feature = "bundled")]
 #[test]
-fn overlay_canonical_fallback_with_vendor_prefix() {
-    let sample = serde_json::json!({
-        "aggregator-co": {
-            "id": "aggregator-co",
-            "name": "Aggregator Co",
-            "models": {
-                "openai/gpt-canary": { "id": "openai/gpt-canary" }
-            }
-        }
-    });
-    let mut store = RouterStore::from_json(&serde_json::to_string(&sample).unwrap()).unwrap();
-    let overlay_json = r#"{
-        "openai": {
-            "id": "openai",
-            "models": {
-                "gpt-canary": {
-                    "id": "gpt-canary",
-                    "tool_call": true,
-                    "limit": { "context": 32000 }
-                }
-            }
-        }
-    }"#;
-    let overlay = parse_models_dev(overlay_json).unwrap();
-    store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    let m = store.find_model("openai/gpt-canary").unwrap();
-    assert_eq!(m.features.as_ref().and_then(|f| f.tool_call), Some(true));
-    assert_eq!(m.limit.as_ref().and_then(|l| l.context), Some(32000));
-}
-
-#[test]
-fn overlay_provider_alias_alibaba_cn_to_alibaba() {
-    let mut store = overlay_store_with_extra_provider();
-    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
-    store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    let alibaba_cn_models = store.find_models_by_provider("alibaba-cn");
-    let target = alibaba_cn_models
-        .iter()
-        .find(|m| m.id == "test-aliased")
-        .expect("test-aliased should exist in alibaba-cn");
-    assert_eq!(target.limit.as_ref().and_then(|l| l.context), Some(200000));
-    assert_eq!(target.features.as_ref().and_then(|f| f.tool_call), Some(true));
-}
-
-#[test]
-fn overlay_unmatched_models_reported() {
-    let mut store = overlay_store_with_extra_provider();
-    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
-    let report = store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    assert!(report.models_unmatched > 0);
-    assert!(report.models_touched > 0);
-}
-
-#[test]
-fn overlay_idempotent_under_fill_only() {
-    let mut store = overlay_store_with_extra_provider();
-    let overlay = parse_models_dev(OVERLAY_JSON).unwrap();
-    let first = store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    let second = store.apply_overlay(&overlay, OverlayMode::FillOnly);
-    assert!(first.fields_written > 0);
+fn bundled_catalog_matches_exported_provenance_and_parses_current_scale() {
+    let store = RouterStore::bundled().unwrap();
+    let metadata = store.catalog_metadata();
+    assert_eq!(metadata.source, CatalogSource::ModelsDevBundled);
+    assert_eq!(metadata.source_url.as_deref(), Some(MODELS_DEV_API_URL));
     assert_eq!(
-        second.fields_written, 0,
-        "running overlay twice should not write the same fields again"
+        metadata.retrieved_at.as_deref(),
+        Some(BUNDLED_MODELS_DEV_RETRIEVED_AT)
     );
-}
-
-#[test]
-fn overlay_from_json_returns_report() {
-    let mut store = overlay_store_with_extra_provider();
-    let report = store
-        .apply_overlay_from_json(OVERLAY_JSON, OverlayMode::FillOnly)
-        .unwrap();
-    assert!(report.fields_written > 0);
-}
-
-// ─────────────────────────── Compare tests ──────────────────────────
-
-#[test]
-fn compare_three_models() {
-    let store = test_store();
-    let comp = compare(&store, &["model-small", "model-large", "other-cheap"]);
-    assert_eq!(comp.models.len(), 3);
-    let open_weights_field = comp
-        .fields
-        .iter()
-        .find(|f| f.field == "open_weights")
-        .unwrap();
-    for (id, val) in &open_weights_field.values {
-        if id == "model-large" || id == "other-cheap" {
-            assert_eq!(*val, FieldValue::Bool(Some(true)));
-        } else {
-            assert_eq!(*val, FieldValue::Bool(None));
-        }
-    }
+    assert_eq!(metadata.sha256.as_deref(), Some(BUNDLED_MODELS_DEV_SHA256));
+    assert_eq!(metadata.etag.as_deref(), Some(BUNDLED_MODELS_DEV_ETAG));
+    assert_eq!(
+        metadata.source_revision.as_deref(),
+        Some(BUNDLED_MODELS_DEV_SOURCE_REVISION)
+    );
+    assert_eq!(metadata.byte_count, Some(BUNDLED_MODELS_DEV_BYTE_COUNT));
+    assert_eq!(metadata.provider_count, store.providers().len());
+    assert_eq!(metadata.model_count, store.flat_models().len());
+    assert_eq!(metadata.provider_count, BUNDLED_MODELS_DEV_PROVIDER_COUNT);
+    assert_eq!(metadata.model_count, BUNDLED_MODELS_DEV_MODEL_COUNT);
+    assert!(metadata.provider_count >= 100);
+    assert!(metadata.model_count >= 4_000);
+    assert!(store.find_provider("openai").is_some());
+    assert!(store.find_provider("alibaba").is_some());
+    assert!(store.find_provider("anthropic").is_some());
 }

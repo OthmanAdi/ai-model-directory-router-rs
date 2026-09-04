@@ -1,164 +1,197 @@
 use crate::store::RouterStore;
 use crate::types::*;
+use std::cmp::Ordering;
 
 fn matches_input_modality(model: &FlatModel, modalities: &[ModelModality]) -> bool {
+    if modalities.is_empty() {
+        return true;
+    }
     model
         .modalities
         .as_ref()
         .and_then(|m| m.input.as_ref())
-        .map(|m_input| modalities.iter().all(|req| m_input.contains(req)))
+        .map(|available| {
+            modalities
+                .iter()
+                .all(|required| available.contains(required))
+        })
         .unwrap_or(false)
 }
 
 fn matches_output_modality(model: &FlatModel, modalities: &[ModelModality]) -> bool {
+    if modalities.is_empty() {
+        return true;
+    }
     model
         .modalities
         .as_ref()
         .and_then(|m| m.output.as_ref())
-        .map(|m_output| modalities.iter().all(|req| m_output.contains(req)))
+        .map(|available| {
+            modalities
+                .iter()
+                .all(|required| available.contains(required))
+        })
         .unwrap_or(false)
 }
 
-fn matches_features(model: &FlatModel, features: &ModelFeatures) -> bool {
-    let mf = match &model.features {
-        Some(f) => f,
-        None => return false,
-    };
+fn matches_features(model: &FlatModel, requested: &ModelFeatures) -> bool {
+    requested.attachment.is_none_or(|value| {
+        model.features.as_ref().and_then(|actual| actual.attachment) == Some(value)
+    }) && requested.reasoning.is_none_or(|value| {
+        model.features.as_ref().and_then(|actual| actual.reasoning) == Some(value)
+    }) && requested.tool_call.is_none_or(|value| {
+        model.features.as_ref().and_then(|actual| actual.tool_call) == Some(value)
+    }) && requested.structured_output.is_none_or(|value| {
+        model
+            .features
+            .as_ref()
+            .and_then(|actual| actual.structured_output)
+            == Some(value)
+    }) && requested.temperature.is_none_or(|value| {
+        model
+            .features
+            .as_ref()
+            .and_then(|actual| actual.temperature)
+            == Some(value)
+    })
+}
 
-    if features.tool_call == Some(true) && mf.tool_call != Some(true) {
-        return false;
+fn identity_cmp(a: &FlatModel, b: &FlatModel) -> Ordering {
+    a.provider.cmp(&b.provider).then_with(|| a.id.cmp(&b.id))
+}
+
+fn compare_known_first<T: Ord>(a: Option<T>, b: Option<T>, descending: bool) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) if descending => b.cmp(&a),
+        (Some(a), Some(b)) => a.cmp(&b),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
     }
-    if features.reasoning == Some(true) && mf.reasoning != Some(true) {
-        return false;
-    }
-    if features.structured_output == Some(true) && mf.structured_output != Some(true) {
-        return false;
-    }
-    if features.attachment == Some(true) && mf.attachment != Some(true) {
-        return false;
-    }
-    if features.temperature == Some(true) && mf.temperature != Some(true) {
-        return false;
-    }
-    true
 }
 
 /// Route models through configurable filters, sorting, and pagination.
 ///
-/// Returns a [`RouteResult`] containing the matching models, total count,
-/// and whether more results are available beyond the current page.
+/// Every result is deterministic. Missing numeric values sort after known
+/// values in both ascending and descending order, and ties are resolved by
+/// provider and model ID. Feature filters distinguish `false` from unknown.
 ///
-/// # Example
-///
-/// ```no_run
-/// use ai_model_directory_router::{RouterStore, route, RouteQuery, SortField, SortOrder};
-/// use std::path::Path;
-///
-/// let store = RouterStore::from_file(Path::new("data/all.min.json")).unwrap();
-/// let query = RouteQuery {
-///     provider: Some("openai".to_string()),
-///     min_context: Some(128_000),
-///     sort: Some(SortField::InputPrice),
-///     order: Some(SortOrder::Asc),
-///     limit: Some(5),
-///     ..RouteQuery::default()
-/// };
-/// let result = route(&store, &query);
-/// println!("Found {} models ({} total, has_more: {})",
-///     result.models.len(), result.total, result.has_more);
-/// ```
+/// Pagination uses saturating arithmetic. A zero limit always returns an empty
+/// page with `has_more` set to `false`.
 pub fn route(store: &RouterStore, query: &RouteQuery) -> RouteResult {
     let mut models: Vec<FlatModel> = store.flat_models().to_vec();
 
-    if let Some(ref provider) = query.provider {
-        let lower = provider.to_lowercase();
-        models.retain(|m| m.provider.to_lowercase() == lower);
+    if let Some(provider) = &query.provider {
+        models.retain(|model| model.provider.eq_ignore_ascii_case(provider));
     }
 
-    if let Some(ref modalities) = query.input_modalities {
-        models.retain(|m| matches_input_modality(m, modalities));
+    if let Some(model_id) = &query.model_id {
+        models.retain(|model| model.id == *model_id);
     }
 
-    if let Some(ref modalities) = query.output_modalities {
-        models.retain(|m| matches_output_modality(m, modalities));
-    }
-
-    if let Some(ref features) = query.features {
-        models.retain(|m| matches_features(m, features));
-    }
-
-    if let Some(min_ctx) = query.min_context {
-        models.retain(|m| m.limit.as_ref().and_then(|l| l.context).unwrap_or(0) >= min_ctx);
-    }
-
-    if let Some(max_price) = query.max_input_price {
-        models.retain(|m| {
-            m.pricing
-                .as_ref()
-                .and_then(|p| p.input)
-                .map(|price| price <= max_price)
-                .unwrap_or(false)
+    if let Some(family) = &query.family {
+        models.retain(|model| {
+            model
+                .family
+                .as_deref()
+                .is_some_and(|actual| actual.eq_ignore_ascii_case(family))
         });
     }
 
-    if let Some(max_price) = query.max_output_price {
-        models.retain(|m| {
-            m.pricing
+    if let Some(status) = &query.status {
+        models.retain(|model| model.status.as_ref() == Some(status));
+    }
+
+    if let Some(modalities) = &query.input_modalities {
+        models.retain(|model| matches_input_modality(model, modalities));
+    }
+
+    if let Some(modalities) = &query.output_modalities {
+        models.retain(|model| matches_output_modality(model, modalities));
+    }
+
+    if let Some(features) = &query.features {
+        models.retain(|model| matches_features(model, features));
+    }
+
+    if let Some(minimum) = query.min_context {
+        models.retain(|model| {
+            model
+                .limit
                 .as_ref()
-                .and_then(|p| p.output)
-                .map(|price| price <= max_price)
-                .unwrap_or(false)
+                .and_then(|limit| limit.context)
+                .is_some_and(|context| context >= minimum)
+        });
+    }
+
+    if let Some(maximum) = query.max_input_price {
+        models.retain(|model| {
+            model
+                .pricing
+                .as_ref()
+                .and_then(|pricing| pricing.rates.input)
+                .is_some_and(|price| price <= maximum)
+        });
+    }
+
+    if let Some(maximum) = query.max_output_price {
+        models.retain(|model| {
+            model
+                .pricing
+                .as_ref()
+                .and_then(|pricing| pricing.rates.output)
+                .is_some_and(|price| price <= maximum)
         });
     }
 
     if let Some(open) = query.open_weights {
-        models.retain(|m| m.open_weights == Some(open));
+        models.retain(|model| model.open_weights == Some(open));
     }
 
-    if let Some(ref sort_field) = query.sort {
-        let descending = matches!(query.order, Some(SortOrder::Desc));
-        models.sort_by(|a, b| {
-            let cmp = match sort_field {
-                SortField::Id => a.id.cmp(&b.id),
-                SortField::Context => {
-                    let va = a.limit.as_ref().and_then(|l| l.context).unwrap_or(0);
-                    let vb = b.limit.as_ref().and_then(|l| l.context).unwrap_or(0);
-                    va.cmp(&vb)
-                }
-                SortField::InputPrice => {
-                    let va = a.pricing.as_ref().and_then(|p| p.input).unwrap_or(f64::MAX);
-                    let vb = b.pricing.as_ref().and_then(|p| p.input).unwrap_or(f64::MAX);
-                    va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
-                }
-                SortField::OutputPrice => {
-                    let va = a.pricing.as_ref().and_then(|p| p.output).unwrap_or(f64::MAX);
-                    let vb = b.pricing.as_ref().and_then(|p| p.output).unwrap_or(f64::MAX);
-                    va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
-                }
-            };
-            if descending { cmp.reverse() } else { cmp }
-        });
-    }
+    let descending = matches!(query.order, Some(SortOrder::Desc));
+    models.sort_by(|a, b| {
+        let Some(sort_field) = query.sort.as_ref() else {
+            return identity_cmp(a, b);
+        };
+        let primary = match sort_field {
+            SortField::Id if descending => b.id.cmp(&a.id),
+            SortField::Id => a.id.cmp(&b.id),
+            SortField::Context => compare_known_first(
+                a.limit.as_ref().and_then(|limit| limit.context),
+                b.limit.as_ref().and_then(|limit| limit.context),
+                descending,
+            ),
+            SortField::InputPrice => compare_known_first(
+                a.pricing.as_ref().and_then(|pricing| pricing.rates.input),
+                b.pricing.as_ref().and_then(|pricing| pricing.rates.input),
+                descending,
+            ),
+            SortField::OutputPrice => compare_known_first(
+                a.pricing.as_ref().and_then(|pricing| pricing.rates.output),
+                b.pricing.as_ref().and_then(|pricing| pricing.rates.output),
+                descending,
+            ),
+        };
+
+        primary.then_with(|| identity_cmp(a, b))
+    });
 
     let total = models.len();
     let limit = query.limit.unwrap_or(50);
     let offset = query.offset.unwrap_or(0);
 
-    if offset >= total {
+    if limit == 0 || offset >= total {
         return RouteResult {
-            models: vec![],
+            models: Vec::new(),
             total,
             has_more: false,
         };
     }
 
-    let end = std::cmp::min(offset + limit, total);
-    let paged: Vec<FlatModel> = models[offset..end].to_vec();
-    let has_more = offset + limit < total;
-
+    let end = offset.saturating_add(limit).min(total);
     RouteResult {
-        models: paged,
+        models: models[offset..end].to_vec(),
         total,
-        has_more,
+        has_more: end < total,
     }
 }

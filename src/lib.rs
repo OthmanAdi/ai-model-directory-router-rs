@@ -1,15 +1,17 @@
 //! AI Model Directory Router
 //!
-//! A Rust library for routing, filtering, cost calculation, fallback chain
-//! generation, and context window management for over 7,000 AI models across
-//! 50+ providers.
+//! Provider-aware AI model routing, filtering, exact cost calculation,
+//! fallback selection, and context-window management. The default `bundled`
+//! feature ships a dated models.dev provider catalog for offline use.
 //!
 //! # Quick Start
 //!
-//! ```no_run
-//! use ai_model_directory_router::{RouterStore, route, RouteQuery};
+//! ```
+//! use ai_model_directory_router::{route, RouteQuery, RouterStore};
 //!
-//! let store = RouterStore::from_file(std::path::Path::new("data/all.min.json")).unwrap();
+//! # #[cfg(feature = "bundled")]
+//! # {
+//! let store = RouterStore::bundled().unwrap();
 //!
 //! let query = RouteQuery {
 //!     provider: Some("openai".to_string()),
@@ -21,11 +23,12 @@
 //! for model in &result.models {
 //!     println!("{} (via {})", model.id, model.provider);
 //! }
+//! # }
 //! ```
 //!
 //! # Modules
 //!
-//! - [`store`] loads and flattens model data into [`RouterStore`]
+//! - [`store`] loads bundled, local, inline, or live provider catalogs
 //! - [`cost`] calculates per-token costs using exact decimal arithmetic
 //! - [`router`] filters, sorts, and paginates models by provider, price, context, features, and modalities
 //! - [`fallback`] generates scored alternative model chains
@@ -41,17 +44,25 @@ pub mod router;
 pub mod store;
 pub mod types;
 
-pub use compare::compare;
-pub use context::{check_context_fit, find_best_context_model};
+pub use compare::{compare, compare_models};
+pub use context::{check_context_fit, check_context_fit_for_provider, find_best_context_model};
 pub use cost::{calculate_cost_for_model, estimate_request_cost};
-pub use fallback::fallback_chain;
+pub use fallback::{fallback_chain, fallback_chain_for_provider};
 pub use overlay::{
     apply_overlay, load_models_dev_from_file, parse_models_dev, ModelsDevCost, ModelsDevIndex,
     ModelsDevLimit, ModelsDevModalities, ModelsDevModel, ModelsDevProvider, OverlayMode,
     OverlayReport,
 };
 pub use router::route;
-pub use store::RouterStore;
+#[cfg(feature = "online")]
+pub use store::MODELS_DEV_BODY_LIMIT;
+pub use store::{RouterStore, MODELS_DEV_API_URL};
+#[cfg(feature = "bundled")]
+pub use store::{
+    BUNDLED_MODELS_DEV_BYTE_COUNT, BUNDLED_MODELS_DEV_ETAG, BUNDLED_MODELS_DEV_MODEL_COUNT,
+    BUNDLED_MODELS_DEV_PROVIDER_COUNT, BUNDLED_MODELS_DEV_RETRIEVED_AT, BUNDLED_MODELS_DEV_SHA256,
+    BUNDLED_MODELS_DEV_SOURCE_REVISION,
+};
 pub use types::*;
 
 #[cfg(test)]
