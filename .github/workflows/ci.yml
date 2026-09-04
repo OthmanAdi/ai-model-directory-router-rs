@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check all targets and features
+        run: cargo check --all-targets --all-features --locked
+      - name: Test all targets and features
+        run: cargo test --all-targets --all-features --locked
+      - name: Lint all targets and features
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+      - name: Build documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --all-features --locked
+
+  platforms:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - name: Check
+        run: cargo check --all-targets --all-features --locked
+      - name: Test
+        run: cargo test --all-targets --all-features --locked
+
+  msrv:
+    name: Rust 1.85 MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@077fee5b0788f1a772d4c6ce2814159cd1d6632b
+        with:
+          toolchain: "1.85"
+      - name: Check all targets and features
+        run: cargo check --all-targets --all-features --locked
+      - name: Test all targets and features
+        run: cargo test --all-targets --all-features --locked
+
+  minimal-features:
+    name: No default features
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - name: Check without default features
+        run: cargo check --all-targets --no-default-features --locked
+      - name: Test without default features
+        run: cargo test --all-targets --no-default-features --locked
+      - name: Check online without bundled data
+        run: cargo check --all-targets --no-default-features --features online --locked
+      - name: Test online without bundled data
+        run: cargo test --all-targets --no-default-features --features online --locked
+
+  package:
+    name: Package and publish dry run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+      - name: Build publishable package
+        run: cargo package --locked
+      - name: Validate crates.io upload
+        run: cargo publish --dry-run --locked
