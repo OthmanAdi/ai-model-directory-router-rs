@@ -34,7 +34,7 @@ online = ["dep:ureq"]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision"] }
 rust_decimal = { version = "1", features = ["serde-with-arbitrary-precision"] }
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = "2"
 ureq = { version = "3.4", optional = true, default-features = false, features = ["rustls"] }
 
