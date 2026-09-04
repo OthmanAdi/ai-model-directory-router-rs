@@ -1,87 +1,115 @@
 # Contributing
 
-Thanks for your interest in improving `ai-model-directory-router`. This document
-covers everything you need to make a useful contribution.
+Thank you for improving `ai-model-directory-router`. Contributions should keep
+the crate focused on deterministic metadata routing. Provider authentication,
+API request construction, and model inference belong in downstream clients.
 
-## Quick Start
+## Development Setup
+
+Install Rust 1.85 or newer, then run:
 
 ```bash
 git clone https://github.com/OthmanAdi/ai-model-directory-router-rs.git
 cd ai-model-directory-router-rs
-cargo test
+cargo test --all-targets --all-features
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-You will need a copy of the AI Model Directory data file for integration
-testing. Download
-[`all.min.json`](https://github.com/The-Best-Codes/ai-model-directory/blob/main/data/all.min.json)
-and place it at `data/all.min.json` relative to your working directory, or use
-`RouterStore::from_json` with inline test data (see `src/tests.rs` for the
-existing test fixture).
+The default `bundled` feature includes the checked-in models.dev snapshot. Most
+tests should use small inline JSON fixtures so failures remain focused and
+repeatable.
 
 ## Project Layout
 
-```
+```text
 src/
-  lib.rs        Crate root, re-exports
-  types.rs      All public types
-  store.rs      RouterStore, data loading
-  cost.rs       Cost calculation
-  router.rs     Filtering, sorting, pagination
+  lib.rs        Crate root and public exports
+  types.rs      Public catalog, routing, pricing, and result types
+  store.rs      Catalog loading and provider-aware lookup
+  cost.rs       Exact cost calculation and pricing tiers
+  router.rs     Filtering, sorting, and offset pagination
   fallback.rs   Fallback chain generation
-  context.rs    Context window checks
+  context.rs    Context, input, and output limit checks
   compare.rs    Model comparison
+  overlay.rs    Legacy AI Model Directory overlay support
   tests.rs      Test suite
+data/
+  models-dev-api.json  Bundled, dated models.dev snapshot
+examples/       Runnable catalog and routing examples
 ```
 
 ## Coding Guidelines
 
-- Run `cargo fmt` before every commit.
-- Run `cargo clippy --all-targets --all-features -- -D warnings` and fix all
-  warnings.
-- Keep code self-documenting. Prefer descriptive names over comments.
-- Use `rust_decimal::Decimal` for all cost and price arithmetic. Never use
-  `f64` for monetary values in new code.
-- Make surgical edits. Do not reformat or refactor unrelated code.
-- All public functions and types must have `///` doc comments with usage
-  examples where practical.
-- Add `#[non_exhaustive]` to enums and structs that may grow in future
-  releases.
+- Keep changes surgical and do not reformat unrelated code.
+- Use `rust_decimal::Decimal` for every monetary value and calculation. Do not
+  convert prices through `f32` or `f64`.
+- Preserve provider-qualified model identity. A bare model ID may identify more
+  than one commercial offering.
+- Represent unknown metadata as unknown. Missing prices must not become zero,
+  and absent limits must not become invented limits.
+- Keep input, output, and total context checks independent.
+- Add documentation and focused tests for public behavior.
+- Add `#[non_exhaustive]` where callers should be able to tolerate future
+  variants or fields.
 
-## Adding a New Feature
+## Updating the Bundled Catalog
 
-1. Add any new types to `types.rs`.
-2. Implement the feature in the appropriate module (or a new one).
-3. Re-export public items from `lib.rs`.
-4. Add tests to `tests.rs`.
-5. Add a doc comment with a `no_run` example.
-6. Run `cargo test`, `cargo clippy`, and `cargo doc --no-deps` (verify docs
-   render correctly).
+The bundled file is a snapshot of the public
+[`https://models.dev/api.json`](https://models.dev/api.json) endpoint. It does
+not require a provider API key.
 
-## Pull Request Checklist
+For a catalog update:
 
-Before opening a PR:
+1. Download the public endpoint without modifying its JSON values.
+2. Update the bundled retrieval time, ETag, observed source revision, SHA-256,
+   provider count, and offering count in `src/store.rs`, `README.md`, and
+   `CHANGELOG.md`.
+3. Confirm the models.dev MIT notice remains in
+   `THIRD_PARTY_LICENSES/models.dev-MIT.txt`.
+4. Run the full validation suite, including minimal and online feature builds.
+5. Review additions, removals, lifecycle changes, prices, and limits. Treat the
+   snapshot as source data, not as provider-verified production truth.
 
-- [ ] `cargo test` passes (all existing and new tests).
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` is clean.
-- [ ] `cargo fmt` has been run.
-- [ ] New public items have doc comments.
-- [ ] No secrets, API keys, or large data files committed.
+Do not add provider-specific corrections without cited primary evidence and a
+clear provenance boundary. Promotional, regional, time-varying, and tiered
+prices require particular care.
 
-## Reporting Issues
+## Validation
 
-Open a [GitHub issue](https://github.com/OthmanAdi/ai-model-directory-router-rs/issues)
-with:
+Run the gates used by CI:
 
-- Rust version (`rustc --version`)
-- Crate version
-- A minimal reproducer if applicable
+```bash
+cargo fmt --all -- --check
+cargo check --all-targets --all-features --locked
+cargo test --all-targets --all-features --locked
+cargo clippy --all-targets --all-features --locked -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features --locked
+cargo check --all-targets --no-default-features --locked
+cargo test --all-targets --no-default-features --locked
+cargo check --all-targets --no-default-features --features online --locked
+cargo test --all-targets --no-default-features --features online --locked
+cargo package --locked
+cargo publish --dry-run --locked
+```
 
-## Relationship to the Upstream Project
+Also verify the declared minimum toolchain:
 
-This crate is a Rust implementation of the TypeScript router package in the
-[AI Model Directory](https://github.com/The-Best-Codes/ai-model-directory)
-monorepo. API changes that break parity with the TypeScript version should be
-discussed in an issue first.
+```bash
+cargo +1.85 check --all-targets --all-features --locked
+cargo +1.85 test --all-targets --all-features --locked
+```
 
-Thank you for contributing!
+## Pull Requests
+
+Before opening a pull request:
+
+- Add tests for behavior changes and regression fixes.
+- Update `README.md` and `CHANGELOG.md` when the public contract changes.
+- Run `cargo fmt`, tests, Clippy, documentation, and relevant feature checks.
+- Confirm examples compile with the feature combinations they describe.
+- Do not commit credentials, provider API keys, or unpublished security reports.
+
+Open bug reports through
+[GitHub Issues](https://github.com/OthmanAdi/ai-model-directory-router-rs/issues)
+with the crate version, `rustc --version`, and a minimal reproducer. Report
+security issues privately as described in [SECURITY.md](SECURITY.md).

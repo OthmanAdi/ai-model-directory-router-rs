@@ -1,42 +1,42 @@
 # Thanks and Attribution
 
+## models.dev
+
+Version 0.3 uses the provider-scoped catalog published by
+[models.dev](https://models.dev), an open-source database maintained by
+[Anomaly](https://github.com/anomalyco/models.dev) and its contributors.
+
+The bundled `data/models-dev-api.json` file is a dated snapshot of the public
+`https://models.dev/api.json` endpoint. It is redistributed under the models.dev
+MIT license. The required copyright and license notice is included at
+`THIRD_PARTY_LICENSES/models.dev-MIT.txt`.
+
+models.dev distinguishes three public JSON views:
+
+- `api.json` contains provider-specific offerings, including provider pricing,
+  limits, lifecycle state, and API metadata.
+- `models.json` contains facts about underlying models that are independent of
+  where they are served.
+- `catalog.json` combines the provider and underlying-model collections.
+
+This crate ingests `api.json` because routing, pricing, limits, and availability
+belong to a provider offering. The upstream catalog remains a metadata source,
+not an authority for provider billing or production availability.
+
 ## AI Model Directory
 
-This crate is built on the [AI Model
-Directory](https://github.com/The-Best-Codes/ai-model-directory) by
-[The-Best-Codes](https://github.com/The-Best-Codes).
+Earlier releases were inspired by the
+[AI Model Directory](https://github.com/The-Best-Codes/ai-model-directory) and
+its TypeScript routing work. Version 0.3 no longer claims API parity with a
+TypeScript companion package. The former `packages/router` link is not present
+on the upstream `main` branch.
 
-The AI Model Directory is the most comprehensive, automatically updated
-directory of AI models and their metadata. It maintains pricing, context
-windows, features, modalities, and provider information for over 7,000 models
-across 50+ providers.
+## Rust Dependencies
 
-Specifically, this crate depends on:
-
-- **The model dataset** (`data/all.min.json`), which is the runtime data source
-  loaded by `RouterStore`. Without the ongoing work of the upstream project to
-  keep this data current and accurate, this crate would not exist.
-- **The TypeScript router package**
-  ([`packages/router`](https://github.com/The-Best-Codes/ai-model-directory/tree/feat/router-package/packages/router)),
-  which defined the API surface and business logic that this Rust crate mirrors.
-  Every function, type, and scoring algorithm follows the original TypeScript
-  implementation.
-
-## How to Support the Upstream Project
-
-- Star [the repository](https://github.com/The-Best-Codes/ai-model-directory).
-- Contribute new providers, fix metadata errors, or report missing models by
-  following their
-  [CONTRIBUTING.md](https://github.com/The-Best-Codes/ai-model-directory/blob/main/CONTRIBUTING.md).
-- Visit [models.agent-one.dev](https://models.agent-one.dev/) for the web
-  directory.
-
-## Open Source Dependencies
-
-This crate relies on excellent Rust libraries:
-
-- [serde](https://crates.io/crates/serde) and
-  [serde_json](https://crates.io/crates/serde_json) for JSON deserialization.
-- [rust_decimal](https://crates.io/crates/rust_decimal) for exact decimal
-  arithmetic in cost calculations.
-- [thiserror](https://crates.io/crates/thiserror) for ergonomic error types.
+The crate also relies on the work of the maintainers and contributors of
+[`rust_decimal`](https://crates.io/crates/rust_decimal),
+[`serde`](https://crates.io/crates/serde),
+[`serde_json`](https://crates.io/crates/serde_json),
+[`sha2`](https://crates.io/crates/sha2),
+[`thiserror`](https://crates.io/crates/thiserror), and the optional
+[`ureq`](https://crates.io/crates/ureq) HTTP client.
